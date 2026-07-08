@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { motion } from "framer-motion";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 import {
   Activity,
   Brain,
@@ -43,6 +44,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { isSupabaseConfigured, supabase } from "./supabaseClient";
 import "./styles.css";
 
 type Outcome = "Win" | "Loss" | "BE";
@@ -50,6 +52,7 @@ type Session = "Asia" | "London" | "New York" | "Overlap";
 type EntryTimeframe = "5m" | "15m" | "30m";
 type TargetPlan = "Previous order block" | "2R";
 type ActiveTab = "dashboard" | "add" | "watchlist" | "archive";
+type AuthMode = "signin" | "signup";
 type AccountProfile = {
   id: string;
   name: string;
@@ -453,6 +456,13 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
   const [selectedAnalysis, setSelectedAnalysis] = useState<Trade | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>("signin");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [user, setUser] = useState<SupabaseUser | null>(null);
 
   const filteredTrades = useMemo(
     () =>
@@ -473,6 +483,16 @@ function App() {
   useEffect(() => {
     const timer = window.setInterval(() => setClock(new Date()), 60000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getUser().then(({ data }) => setUser(data.user ?? null));
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) setAuthOpen(false);
+    });
+    return () => data.subscription.unsubscribe();
   }, []);
 
   function updateDraft<K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) {
@@ -642,6 +662,34 @@ function App() {
     reader.readAsText(file);
   }
 
+  async function submitAuth(event: React.FormEvent) {
+    event.preventDefault();
+    setAuthMessage("");
+    if (!supabase) {
+      setAuthMessage("Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in Vercel.");
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      const result =
+        authMode === "signin"
+          ? await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword })
+          : await supabase.auth.signUp({ email: authEmail, password: authPassword });
+      if (result.error) throw result.error;
+      setAuthMessage(authMode === "signup" ? "Account created. Check your email if confirmation is enabled." : "Signed in.");
+    } catch (error) {
+      setAuthMessage(error instanceof Error ? error.message : "Authentication failed.");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function signOut() {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+    setUser(null);
+  }
+
   return (
     <main className="app-shell">
       <div className="aurora aurora-one" />
@@ -683,9 +731,9 @@ function App() {
               <option key={account}>{account}</option>
             ))}
           </select>
-          <button className="login-button" title="Account options">
+          <button className="login-button" title="Account options" onClick={() => setAuthOpen(true)}>
             <User size={16} />
-            <LogIn size={15} />
+            <span>{user?.email ? user.email.split("@")[0] : "Sign in"}</span>
           </button>
         </div>
       </nav>
@@ -1021,6 +1069,59 @@ function App() {
               </button>
             </div>
             <AnalysisPanel analysis={selectedAnalysis.aiAnalysis} />
+          </div>
+        </div>
+      )}
+      {authOpen && (
+        <div className="analysis-modal" role="dialog" aria-modal="true">
+          <div className="auth-card">
+            <div className="panel-header">
+              <div>
+                <p className="kicker">Account</p>
+                <h2>{user ? "Account options" : authMode === "signin" ? "Sign in" : "Create account"}</h2>
+              </div>
+              <button className="delete-button" onClick={() => setAuthOpen(false)} title="Close account panel">
+                <X size={16} />
+              </button>
+            </div>
+            {user ? (
+              <div className="auth-signed-in">
+                <User size={28} />
+                <strong>{user.email}</strong>
+                <button type="button" onClick={signOut}>
+                  Sign out
+                </button>
+              </div>
+            ) : (
+              <form className="auth-form" onSubmit={submitAuth}>
+                {!isSupabaseConfigured && (
+                  <p className="analysis-error">
+                    Supabase env vars are missing. Add them in Vercel, then redeploy.
+                  </p>
+                )}
+                <Field label="Email">
+                  <input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} required />
+                </Field>
+                <Field label="Password">
+                  <input type="password" minLength={6} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} required />
+                </Field>
+                {authMessage && <p className="auth-message">{authMessage}</p>}
+                <button className="submit-button" disabled={authLoading}>
+                  <LogIn size={18} />
+                  {authLoading ? "Working..." : authMode === "signin" ? "Sign in" : "Create account"}
+                </button>
+                <button
+                  className="auth-switch"
+                  type="button"
+                  onClick={() => {
+                    setAuthMode(authMode === "signin" ? "signup" : "signin");
+                    setAuthMessage("");
+                  }}
+                >
+                  {authMode === "signin" ? "Need an account? Create one" : "Already have an account? Sign in"}
+                </button>
+              </form>
+            )}
           </div>
         </div>
       )}
