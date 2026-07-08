@@ -1,0 +1,142 @@
+type TradeContext = {
+  date: string;
+  time: string;
+  symbol: string;
+  session: string;
+  entryTimeframe: string;
+  targetPlan: string;
+  criteria: {
+    oneHourOrderBlock: boolean;
+    lastMoveOppositeDirection: boolean;
+    previousChangeOfStructure: boolean;
+  };
+};
+
+const analysisSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    structure: { type: "string" },
+    orderBlock: { type: "string" },
+    bosChoch: { type: "string" },
+    liquidity: { type: "string" },
+    fvg: { type: "string" },
+    trend: { type: "string" },
+    session: { type: "string" },
+    score: { type: "number" },
+    feedback: { type: "string" },
+    costUsd: { type: "string" },
+    costPhp: { type: "string" },
+    createdAt: { type: "string" },
+    model: { type: "string" },
+  },
+  required: [
+    "structure",
+    "orderBlock",
+    "bosChoch",
+    "liquidity",
+    "fvg",
+    "trend",
+    "session",
+    "score",
+    "feedback",
+    "costUsd",
+    "costPhp",
+    "createdAt",
+    "model",
+  ],
+};
+
+function outputText(response: any) {
+  if (typeof response.output_text === "string") return response.output_text;
+  const chunks = response.output?.flatMap((item: any) => item.content ?? []) ?? [];
+  return chunks.map((chunk: any) => chunk.text ?? "").join("");
+}
+
+export default async function handler(request: any, response: any) {
+  if (request.method !== "POST") {
+    response.setHeader("Allow", "POST");
+    response.status(405).json({ error: "Method not allowed." });
+    return;
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    response.status(500).json({ error: "OPENAI_API_KEY is not configured on the server." });
+    return;
+  }
+
+  try {
+    const { trade, image } = request.body as { trade?: TradeContext; image?: string };
+    if (!trade || !image || !image.startsWith("data:image/")) {
+      response.status(400).json({ error: "Trade context and screenshot image are required." });
+      return;
+    }
+
+    const model = process.env.OPENAI_MODEL || "gpt-5.4";
+    const apiResponse = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        input: [
+          {
+            role: "system",
+            content:
+              "You are an expert short-only ICT/order-block trading coach. Analyze screenshots for bearish 1H order block setups only. Be strict, practical, and concise. The user's model requires: 1H order block, last move in the opposite direction into the zone, previous BOS/CHoCH, then entry on 5m/15m/30m. Targets are previous order block or 2R. If the image is unclear, say so and reduce the score.",
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: `Analyze this trade screenshot and context. Return JSON only.
+
+Trade context:
+${JSON.stringify(trade, null, 2)}
+
+Score from 0-100. Coach specifically on Structure, Order Block, BOS/CHoCH, Liquidity, FVG, Trend, Session, and final feedback.
+Cost estimate to display: $0.09-$0.18 USD, PHP 5-PHP 10.`,
+              },
+              {
+                type: "input_image",
+                image_url: image,
+              },
+            ],
+          },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "trade_screenshot_analysis",
+            schema: analysisSchema,
+            strict: true,
+          },
+        },
+      }),
+    });
+
+    const data = await apiResponse.json();
+    if (!apiResponse.ok) {
+      response.status(apiResponse.status).json({ error: data.error?.message ?? "OpenAI analysis failed." });
+      return;
+    }
+
+    const parsed = JSON.parse(outputText(data));
+    response.status(200).json({
+      analysis: {
+        ...parsed,
+        score: Math.max(0, Math.min(100, Math.round(Number(parsed.score)))),
+        costUsd: parsed.costUsd || "$0.09-$0.18",
+        costPhp: parsed.costPhp || "PHP 5-PHP 10",
+        createdAt: parsed.createdAt || new Date().toISOString(),
+        model,
+      },
+    });
+  } catch (error) {
+    response.status(500).json({ error: error instanceof Error ? error.message : "Unexpected analysis error." });
+  }
+}

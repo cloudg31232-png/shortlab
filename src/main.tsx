@@ -1,0 +1,1496 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { motion } from "framer-motion";
+import {
+  Activity,
+  Brain,
+  Calculator,
+  CalendarClock,
+  Check,
+  Download,
+  Image,
+  Landmark,
+  LayoutDashboard,
+  LineChart as LineIcon,
+  LogIn,
+  Plus,
+  Save,
+  Sparkles,
+  TableProperties,
+  Target,
+  Trash2,
+  Upload,
+  User,
+  Wallet,
+  X,
+} from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  Legend,
+  Line,
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import "./styles.css";
+
+type Outcome = "Win" | "Loss" | "BE";
+type Session = "Asia" | "London" | "New York" | "Overlap";
+type EntryTimeframe = "5m" | "15m" | "30m";
+type TargetPlan = "Previous order block" | "2R";
+type ActiveTab = "dashboard" | "add" | "watchlist" | "archive";
+type AccountProfile = {
+  id: string;
+  name: string;
+  accountSize: number;
+  riskPercent: number;
+};
+type LotSettings = {
+  stopLossPips: number;
+  jpyToUsd: number;
+  audToUsd: number;
+  activeProfileId: string;
+  profiles: AccountProfile[];
+};
+type AiAnalysis = {
+  structure: string;
+  orderBlock: string;
+  bosChoch: string;
+  liquidity: string;
+  fvg: string;
+  trend: string;
+  session: string;
+  score: number;
+  feedback: string;
+  costUsd: string;
+  costPhp: string;
+  createdAt: string;
+  model?: string;
+};
+
+type Trade = {
+  id: string;
+  date: string;
+  time: string;
+  symbol: string;
+  account: string;
+  direction: "Short";
+  session: Session;
+  hasOneHourOrderBlock: boolean;
+  hasLastMoveOpposite: boolean;
+  hasPreviousChangeOfStructure: boolean;
+  entryTimeframe: EntryTimeframe;
+  targetPlan: TargetPlan;
+  lotSize: number;
+  resultR: number;
+  outcome: Outcome;
+  entryQuality: number;
+  exitQuality: number;
+  chartImage?: string;
+  chartImageName?: string;
+  aiAnalysis?: AiAnalysis;
+  notes: string;
+};
+
+const seedTrades: Trade[] = [
+  {
+    id: "seed-1",
+    date: "2026-06-18",
+    time: "16:20",
+    symbol: "EURUSD",
+    account: "Main",
+    direction: "Short",
+    session: "London",
+    hasOneHourOrderBlock: true,
+    hasLastMoveOpposite: true,
+    hasPreviousChangeOfStructure: true,
+    entryTimeframe: "5m",
+    targetPlan: "Previous order block",
+    lotSize: 0.1,
+    resultR: 1.8,
+    outcome: "Win",
+    entryQuality: 8,
+    exitQuality: 7,
+    notes: "Rejected from the 1H bearish order block and sold the lower-timeframe shift.",
+  },
+  {
+    id: "seed-2",
+    date: "2026-06-21",
+    time: "21:10",
+    symbol: "XAUUSD",
+    account: "Main",
+    direction: "Short",
+    session: "Overlap",
+    hasOneHourOrderBlock: true,
+    hasLastMoveOpposite: false,
+    hasPreviousChangeOfStructure: true,
+    entryTimeframe: "5m",
+    targetPlan: "2R",
+    lotSize: 0.1,
+    resultR: -1,
+    outcome: "Loss",
+    entryQuality: 4,
+    exitQuality: 5,
+    notes: "Short idea was there, but the last move into the block was not clean enough.",
+  },
+  {
+    id: "seed-3",
+    date: "2026-06-25",
+    time: "20:45",
+    symbol: "GBPJPY",
+    account: "Main",
+    direction: "Short",
+    session: "Overlap",
+    hasOneHourOrderBlock: true,
+    hasLastMoveOpposite: true,
+    hasPreviousChangeOfStructure: true,
+    entryTimeframe: "15m",
+    targetPlan: "Previous order block",
+    lotSize: 0.1,
+    resultR: 2.4,
+    outcome: "Win",
+    entryQuality: 9,
+    exitQuality: 8,
+    notes: "Textbook 1H supply, 15m confirmation, clean target into prior demand.",
+  },
+  {
+    id: "seed-4",
+    date: "2026-06-28",
+    time: "09:25",
+    symbol: "AUDUSD",
+    account: "Challenge",
+    direction: "Short",
+    session: "Asia",
+    hasOneHourOrderBlock: true,
+    hasLastMoveOpposite: true,
+    hasPreviousChangeOfStructure: false,
+    entryTimeframe: "5m",
+    targetPlan: "2R",
+    lotSize: 0.1,
+    resultR: -0.4,
+    outcome: "Loss",
+    entryQuality: 5,
+    exitQuality: 6,
+    notes: "The block held briefly, but structure had not clearly shifted before entry.",
+  },
+];
+
+const blankTrade: Omit<Trade, "id"> = {
+  date: new Date().toISOString().slice(0, 10),
+  time: new Date().toTimeString().slice(0, 5),
+  symbol: "EURUSD",
+  account: "Main",
+  direction: "Short",
+  session: detectSession(new Date().toTimeString().slice(0, 5)),
+  hasOneHourOrderBlock: true,
+  hasLastMoveOpposite: true,
+  hasPreviousChangeOfStructure: true,
+  entryTimeframe: "5m",
+  targetPlan: "Previous order block",
+  lotSize: 0.1,
+  resultR: 0,
+  outcome: "BE",
+  entryQuality: 7,
+  exitQuality: 7,
+  chartImage: "",
+  chartImageName: "",
+  aiAnalysis: undefined,
+  notes: "",
+};
+
+const storageKey = "edgelab.trades.v2.order-block-shorts";
+const legacyStorageKey = "edgelab.trades.v1";
+const lotSettingsKey = "shortlab.lot-settings.v1";
+const watchPairs = ["AUDJPY", "NZDJPY", "AUDUSD", "EURJPY", "GBPUSD", "EURUSD", "EURAUD"] as const;
+
+const watchWindows = [
+  {
+    pair: "AUDJPY",
+    flag: "AU/JP",
+    start: "07:00",
+    end: "11:00",
+    display: "7:00 AM - 11:00 AM",
+    rating: 5,
+    why: "Tokyo session. AUD and JPY are both active. Very clean H1 OBs.",
+  },
+  {
+    pair: "NZDJPY",
+    flag: "NZ/JP",
+    start: "07:00",
+    end: "11:00",
+    display: "7:00 AM - 11:00 AM",
+    rating: 5,
+    why: "Same reason. Strong Asian session movement.",
+  },
+  {
+    pair: "AUDUSD",
+    flag: "AU/US",
+    start: "07:00",
+    end: "10:00",
+    display: "7:00 AM - 10:00 AM",
+    rating: 4,
+    why: "Australia open, then sometimes London continuation.",
+  },
+  {
+    pair: "EURJPY",
+    flag: "EU/JP",
+    start: "14:00",
+    end: "18:00",
+    display: "2:00 PM - 6:00 PM",
+    rating: 5,
+    why: "London opens, EUR becomes active while JPY still influences.",
+  },
+  {
+    pair: "GBPUSD",
+    flag: "GB/US",
+    start: "15:00",
+    end: "19:00",
+    display: "3:00 PM - 7:00 PM",
+    rating: 5,
+    why: "London is everything for GU.",
+  },
+  {
+    pair: "EURUSD",
+    flag: "EU/US",
+    start: "15:00",
+    end: "19:00",
+    display: "3:00 PM - 7:00 PM",
+    rating: 5,
+    why: "Most consistent liquidity during London.",
+  },
+  {
+    pair: "EURAUD",
+    flag: "EU/AU",
+    start: "14:00",
+    end: "17:00",
+    display: "2:00 PM - 5:00 PM",
+    rating: 4,
+    why: "London activates EUR; AUD leg is quieter, giving cleaner direction.",
+  },
+];
+
+function loadTrades() {
+  try {
+    const stored = localStorage.getItem(storageKey) ?? localStorage.getItem(legacyStorageKey);
+    return stored ? normalizeTrades(JSON.parse(stored) as Partial<Trade>[]) : seedTrades;
+  } catch {
+    return seedTrades;
+  }
+}
+
+function saveTrades(trades: Trade[]) {
+  localStorage.setItem(storageKey, JSON.stringify(trades));
+}
+
+function loadLotSettings(): LotSettings {
+  const fallback: LotSettings = {
+    stopLossPips: 10,
+    jpyToUsd: 0.0067,
+    audToUsd: 0.66,
+    activeProfileId: "profile-10k",
+    profiles: [
+      { id: "profile-10k", name: "10K Account", accountSize: 10000, riskPercent: 0.5 },
+      { id: "profile-100k", name: "100K Account", accountSize: 100000, riskPercent: 0.5 },
+    ],
+  };
+  try {
+    const stored = localStorage.getItem(lotSettingsKey);
+    if (!stored) return fallback;
+    const parsed = JSON.parse(stored) as Partial<LotSettings>;
+    const profiles = parsed.profiles?.length ? parsed.profiles : fallback.profiles;
+    return {
+      ...fallback,
+      ...parsed,
+      profiles,
+      activeProfileId: profiles.some((profile) => profile.id === parsed.activeProfileId) ? String(parsed.activeProfileId) : profiles[0].id,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveLotSettings(settings: LotSettings) {
+  localStorage.setItem(lotSettingsKey, JSON.stringify(settings));
+}
+
+function percent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function compact(value: number) {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}R`;
+}
+
+function timeToMinutes(time: string) {
+  const [hour, minute] = time.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function isWindowActive(start: string, end: string, date = new Date()) {
+  const now = date.getHours() * 60 + date.getMinutes();
+  return now >= timeToMinutes(start) && now < timeToMinutes(end);
+}
+
+function stars(rating: number) {
+  return `${rating}/5`;
+}
+
+function pipValuePerLot(pair: string, settings: LotSettings) {
+  if (pair.endsWith("JPY")) return 1000 * settings.jpyToUsd;
+  if (pair.endsWith("AUD")) return 10 * settings.audToUsd;
+  return 10;
+}
+
+function calculateLotSize(pair: string, settings: LotSettings) {
+  const profile = settings.profiles.find((item) => item.id === settings.activeProfileId) ?? settings.profiles[0];
+  const pipValue = pipValuePerLot(pair, settings);
+  if (!settings.stopLossPips || !pipValue) return 0;
+  return ((profile.accountSize * profile.riskPercent) / 100) / (settings.stopLossPips * pipValue);
+}
+
+function resizeImage(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read image file."));
+    reader.onload = () => {
+      const image = document.createElement("img");
+      image.onerror = () => reject(new Error("Could not load image file."));
+      image.onload = () => {
+        const maxSide = 1400;
+        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(image.width * scale);
+        canvas.height = Math.round(image.height * scale);
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("Could not prepare image preview."));
+          return;
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.78));
+      };
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function detectSession(time: string): Session {
+  const hour = Number(time.split(":")[0]);
+  if (Number.isNaN(hour)) return "London";
+  if (hour >= 7 && hour < 15) return "Asia";
+  if (hour >= 15 && hour < 20) return "London";
+  if (hour >= 20 && hour <= 23) return "Overlap";
+  return "New York";
+}
+
+function setupScore(trade: Pick<Trade, "hasOneHourOrderBlock" | "hasLastMoveOpposite" | "hasPreviousChangeOfStructure">) {
+  return [trade.hasOneHourOrderBlock, trade.hasLastMoveOpposite, trade.hasPreviousChangeOfStructure].filter(Boolean).length;
+}
+
+function setupRead(trade: Pick<Trade, "hasOneHourOrderBlock" | "hasLastMoveOpposite" | "hasPreviousChangeOfStructure">) {
+  const score = setupScore(trade);
+  if (score === 3) return "A+ short";
+  if (score === 2) return "Incomplete";
+  return "Skip zone";
+}
+
+function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
+  return trades.map((trade, index) => {
+    const time = trade.time ?? "15:00";
+    const resultR = Number(trade.resultR ?? 0);
+    const targetPlan: TargetPlan = trade.targetPlan === "2R" ? "2R" : "Previous order block";
+    return {
+      ...blankTrade,
+      ...trade,
+      id: trade.id ?? `import-${index}`,
+      time,
+      direction: "Short" as const,
+      session: detectSession(time),
+      symbol: (trade.symbol ?? blankTrade.symbol).toUpperCase(),
+      account: trade.account?.trim() || blankTrade.account,
+      hasOneHourOrderBlock: Boolean(trade.hasOneHourOrderBlock ?? true),
+      hasLastMoveOpposite: Boolean(trade.hasLastMoveOpposite ?? true),
+      hasPreviousChangeOfStructure: Boolean(trade.hasPreviousChangeOfStructure ?? true),
+      entryTimeframe: ["5m", "15m", "30m"].includes(String(trade.entryTimeframe)) ? (trade.entryTimeframe as EntryTimeframe) : "5m",
+      targetPlan,
+      lotSize: Number(trade.lotSize ?? blankTrade.lotSize),
+      resultR,
+      outcome: resultR > 0 ? "Win" : resultR < 0 ? "Loss" : "BE",
+      entryQuality: Number(trade.entryQuality ?? blankTrade.entryQuality),
+      exitQuality: Number(trade.exitQuality ?? blankTrade.exitQuality),
+      chartImage: trade.chartImage ?? "",
+      chartImageName: trade.chartImageName ?? "",
+      aiAnalysis: trade.aiAnalysis,
+      notes: trade.notes ?? "",
+    };
+  });
+}
+
+function average(values: number[]) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function App() {
+  const [trades, setTrades] = useState<Trade[]>(loadTrades);
+  const [draft, setDraft] = useState<Omit<Trade, "id">>(blankTrade);
+  const [selectedSymbol, setSelectedSymbol] = useState("All");
+  const [selectedAccount, setSelectedAccount] = useState("All");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("dashboard");
+  const [clock, setClock] = useState(new Date());
+  const [lotSettings, setLotSettings] = useState<LotSettings>(loadLotSettings);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState("");
+  const [selectedAnalysis, setSelectedAnalysis] = useState<Trade | null>(null);
+
+  const filteredTrades = useMemo(
+    () =>
+      trades.filter(
+        (trade) =>
+          (selectedSymbol === "All" || trade.symbol === selectedSymbol) &&
+          (selectedAccount === "All" || trade.account === selectedAccount),
+      ),
+    [selectedAccount, selectedSymbol, trades],
+  );
+
+  const analytics = useMemo(() => buildAnalytics(filteredTrades), [filteredTrades]);
+  const coach = useMemo(() => buildCoachNotes(filteredTrades), [filteredTrades]);
+  const symbols = useMemo(() => ["All", ...Array.from(new Set([...watchPairs, ...trades.map((trade) => trade.symbol)]))], [trades]);
+  const accounts = useMemo(() => ["All", ...Array.from(new Set(trades.map((trade) => trade.account)))], [trades]);
+  const activeWindows = useMemo(() => watchWindows.filter((window) => isWindowActive(window.start, window.end, clock)), [clock]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(new Date()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  function updateDraft<K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateLotSetting<K extends keyof LotSettings>(key: K, value: LotSettings[K]) {
+    setLotSettings((current) => {
+      const next = { ...current, [key]: value };
+      saveLotSettings(next);
+      return next;
+    });
+  }
+
+  async function attachTradeImage(file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Please choose an image file for the trade screenshot.");
+      return;
+    }
+    try {
+      const image = await resizeImage(file);
+      updateDraft("chartImage", image);
+      updateDraft("chartImageName", file.name);
+      updateDraft("aiAnalysis", undefined);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not process screenshot.");
+    }
+  }
+
+  async function analyzeDraftTrade() {
+    if (!draft.chartImage) {
+      alert("Attach a screenshot first so the trade review has chart context.");
+      return;
+    }
+    setIsAnalyzing(true);
+    setAnalysisError("");
+    try {
+      const response = await fetch("/api/analyze-trade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trade: {
+            date: draft.date,
+            time: draft.time,
+            symbol: draft.symbol,
+            session: detectSession(draft.time),
+            entryTimeframe: draft.entryTimeframe,
+            targetPlan: draft.targetPlan,
+            criteria: {
+              oneHourOrderBlock: draft.hasOneHourOrderBlock,
+              lastMoveOppositeDirection: draft.hasLastMoveOpposite,
+              previousChangeOfStructure: draft.hasPreviousChangeOfStructure,
+            },
+          },
+          image: draft.chartImage,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error ?? "AI analysis failed.");
+      }
+      updateDraft("aiAnalysis", payload.analysis as AiAnalysis);
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : "AI analysis failed.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }
+
+  function updateAccountProfile(id: string, patch: Partial<AccountProfile>) {
+    setLotSettings((current) => {
+      const next = {
+        ...current,
+        activeProfileId: id,
+        profiles: current.profiles.map((profile) => (profile.id === id ? { ...profile, ...patch } : profile)),
+      };
+      saveLotSettings(next);
+      return next;
+    });
+  }
+
+  function addAccountProfile() {
+    setLotSettings((current) => {
+      const nextProfile = {
+        id: crypto.randomUUID(),
+        name: `Account ${current.profiles.length + 1}`,
+        accountSize: 10000,
+        riskPercent: 0.5,
+      };
+      const next = {
+        ...current,
+        activeProfileId: nextProfile.id,
+        profiles: [...current.profiles, nextProfile],
+      };
+      saveLotSettings(next);
+      return next;
+    });
+  }
+
+  function deleteAccountProfile(id: string) {
+    setLotSettings((current) => {
+      if (current.profiles.length <= 1) return current;
+      const profiles = current.profiles.filter((profile) => profile.id !== id);
+      const next = {
+        ...current,
+        profiles,
+        activeProfileId: current.activeProfileId === id ? profiles[0].id : current.activeProfileId,
+      };
+      saveLotSettings(next);
+      return next;
+    });
+  }
+
+  function addTrade(event: React.FormEvent) {
+    event.preventDefault();
+    const resultR = Number(draft.resultR);
+    const nextTrade: Trade = {
+      ...draft,
+      id: crypto.randomUUID(),
+      direction: "Short",
+      session: detectSession(draft.time),
+      symbol: draft.symbol.trim().toUpperCase(),
+      account: "Main",
+      lotSize: Number(draft.lotSize),
+      resultR,
+      outcome: resultR > 0 ? "Win" : resultR < 0 ? "Loss" : "BE",
+    };
+    const nextTrades = [nextTrade, ...trades];
+    setTrades(nextTrades);
+    saveTrades(nextTrades);
+    setDraft({
+      ...blankTrade,
+      symbol: draft.symbol.trim().toUpperCase() || "EURUSD",
+      account: draft.account.trim() || "Main",
+    });
+  }
+
+  function deleteTrade(id: string) {
+    const nextTrades = trades.filter((trade) => trade.id !== id);
+    setTrades(nextTrades);
+    saveTrades(nextTrades);
+  }
+
+  function exportJson() {
+    const blob = new Blob([JSON.stringify(trades, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `order-block-shorts-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importJson(file: File | undefined) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const normalized = normalizeTrades(JSON.parse(String(reader.result)) as Partial<Trade>[]);
+        setTrades(normalized);
+        saveTrades(normalized);
+      } catch {
+        alert("That file does not look like an order block journal export.");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  return (
+    <main className="app-shell">
+      <div className="aurora aurora-one" />
+      <div className="aurora aurora-two" />
+      <nav className="top-nav">
+        <div className="nav-brand">
+          <div className="brand-mark">SL</div>
+          <div>
+            <strong>ShortLab</strong>
+            <span>Order Block Journal</span>
+          </div>
+        </div>
+        <div className="nav-tabs" aria-label="Primary sections">
+          <button className={activeTab === "dashboard" ? "active" : ""} onClick={() => setActiveTab("dashboard")}>
+            <LayoutDashboard size={16} />
+            Dashboard
+          </button>
+          <button className={activeTab === "add" ? "active" : ""} onClick={() => setActiveTab("add")}>
+            <Plus size={16} />
+            Add Short
+          </button>
+          <button className={activeTab === "watchlist" ? "active" : ""} onClick={() => setActiveTab("watchlist")}>
+            <CalendarClock size={16} />
+            Watchlist
+            {activeWindows.length > 0 && <span className="tab-dot" />}
+          </button>
+          <button className={activeTab === "archive" ? "active" : ""} onClick={() => setActiveTab("archive")}>
+            <TableProperties size={16} />
+            Archive
+          </button>
+        </div>
+        <div className="nav-account">
+          <div className={`live-window ${activeWindows.length ? "active" : ""}`}>
+            <span />
+            {activeWindows.length ? `${activeWindows.length} OB window${activeWindows.length > 1 ? "s" : ""} live` : "No OB window"}
+          </div>
+          <select value={selectedAccount} onChange={(event) => setSelectedAccount(event.target.value)} title="Account filter">
+            {accounts.map((account) => (
+              <option key={account}>{account}</option>
+            ))}
+          </select>
+          <button className="login-button" title="Account options">
+            <User size={16} />
+            <LogIn size={15} />
+          </button>
+        </div>
+      </nav>
+      {activeTab === "dashboard" && <section className="hero">
+        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }}>
+          <div className="eyebrow">
+            <Sparkles size={16} />
+            Short-only order block laboratory
+          </div>
+          <h1>ShortLab</h1>
+          <p>
+            Track bearish 1H order block setups, confirm the last move against the short, require previous change of
+            structure, then refine entries on 5m, 15m, or 30m into a prior order block or 2R target.
+          </p>
+        </motion.div>
+        <div className="hero-actions">
+          <button className="icon-button primary" onClick={exportJson} title="Export journal">
+            <Download size={18} />
+            Export
+          </button>
+          <label className="icon-button ghost" title="Import journal">
+            <Upload size={18} />
+            Import
+            <input type="file" accept="application/json" onChange={(event) => importJson(event.target.files?.[0])} />
+          </label>
+        </div>
+      </section>}
+
+      {activeTab === "dashboard" && (
+        <>
+          <section className="metrics-grid">
+            <Metric icon={<Wallet />} label="Net expectancy" value={compact(analytics.totalR)} detail={`${analytics.count} shorts`} />
+            <Metric icon={<Target />} label="Win rate" value={percent(analytics.winRate)} detail={`${analytics.wins} wins / ${analytics.losses} losses`} />
+            <Metric icon={<Check />} label="Setup pass" value={percent(analytics.setupPassRate)} detail={`${analytics.aPlusCount} A+ shorts`} />
+            <Metric icon={<Landmark />} label="Accounts" value={String(accounts.length - 1)} detail={selectedAccount === "All" ? "All accounts" : selectedAccount} />
+          </section>
+
+          <section className="dashboard-grid">
+            <aside className="coach-panel">
+              <div className="panel-header">
+                <div>
+                  <p className="kicker">Rules assisted</p>
+                  <h2>Setup coach</h2>
+                </div>
+                <Brain size={24} />
+              </div>
+              <div className="coach-score">
+                <span>{analytics.processScore}</span>
+                <p>Process score</p>
+              </div>
+              <div className="coach-list">
+                {coach.map((note) => (
+                  <div className="coach-note" key={note.title}>
+                    <strong>{note.title}</strong>
+                    <p>{note.body}</p>
+                  </div>
+                ))}
+              </div>
+            </aside>
+            <WatchlistPanel activeWindows={activeWindows} onSelectPair={(pair) => {
+              updateDraft("symbol", pair);
+              setActiveTab("add");
+            }} compactView />
+          </section>
+
+          <ChartsSection analytics={analytics} />
+        </>
+      )}
+
+      {activeTab === "add" && (
+      <section className="workbench single">
+        <form className="trade-form" onSubmit={addTrade}>
+          <div className="panel-header">
+            <div>
+              <p className="kicker">New short</p>
+              <h2>Capture the setup</h2>
+            </div>
+            <button className="round-action" title="Save short">
+              <Save size={18} />
+            </button>
+          </div>
+
+          <div className="form-grid">
+            <Field label="Date">
+              <input type="date" value={draft.date} onChange={(event) => updateDraft("date", event.target.value)} />
+            </Field>
+            <Field label="Time">
+              <input type="time" value={draft.time} onChange={(event) => updateDraft("time", event.target.value)} />
+            </Field>
+            <Field label="Symbol">
+              <select value={draft.symbol} onChange={(event) => updateDraft("symbol", event.target.value)}>
+                {watchPairs.map((pair) => (
+                  <option key={pair}>{pair}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Direction">
+              <input value="Short only" readOnly />
+            </Field>
+            <Field label="Session">
+              <input value={detectSession(draft.time)} readOnly />
+            </Field>
+          </div>
+
+          <section className="form-section">
+            <div className="section-title">
+              <Activity size={18} />
+              <div>
+                <h3>Order block criteria</h3>
+                <p>All three should be checked before the short is considered valid.</p>
+              </div>
+            </div>
+            <div className="criteria-grid">
+              <CriteriaToggle
+                label="1H order block"
+                checked={draft.hasOneHourOrderBlock}
+                onChange={(checked) => updateDraft("hasOneHourOrderBlock", checked)}
+              />
+              <CriteriaToggle
+                label="Last move opposite direction"
+                checked={draft.hasLastMoveOpposite}
+                onChange={(checked) => updateDraft("hasLastMoveOpposite", checked)}
+              />
+              <CriteriaToggle
+                label="Previous change of structure"
+                checked={draft.hasPreviousChangeOfStructure}
+                onChange={(checked) => updateDraft("hasPreviousChangeOfStructure", checked)}
+              />
+            </div>
+            <div className={`setup-read ${setupScore(draft) === 3 ? "complete" : "incomplete"}`}>
+              <strong>{setupScore(draft)}/3</strong>
+              <span>{setupRead(draft)}</span>
+            </div>
+          </section>
+
+          <div className="form-grid">
+            <Field label="Entry timeframe">
+              <select value={draft.entryTimeframe} onChange={(event) => updateDraft("entryTimeframe", event.target.value as EntryTimeframe)}>
+                <option>5m</option>
+                <option>15m</option>
+                <option>30m</option>
+              </select>
+            </Field>
+            <Field label="Target">
+              <select value={draft.targetPlan} onChange={(event) => updateDraft("targetPlan", event.target.value as TargetPlan)}>
+                <option>Previous order block</option>
+                <option>2R</option>
+              </select>
+            </Field>
+            <Field label="Lot size">
+              <input type="number" step="0.01" min="0" value={draft.lotSize} onChange={(event) => updateDraft("lotSize", Number(event.target.value))} />
+            </Field>
+            <Field label="Result">
+              <input type="number" step="0.1" value={draft.resultR} onChange={(event) => updateDraft("resultR", Number(event.target.value))} />
+            </Field>
+            <Field label="Entry quality">
+              <input type="range" min="1" max="10" value={draft.entryQuality} onChange={(event) => updateDraft("entryQuality", Number(event.target.value))} />
+            </Field>
+            <Field label="Exit quality">
+              <input type="range" min="1" max="10" value={draft.exitQuality} onChange={(event) => updateDraft("exitQuality", Number(event.target.value))} />
+            </Field>
+          </div>
+          <section className="screenshot-uploader">
+            <div className="section-title">
+              <Image size={18} />
+              <div>
+                <h3>Trade screenshot</h3>
+                <p>Attach a chart screenshot from your PC for review.</p>
+              </div>
+            </div>
+            {draft.chartImage ? (
+              <div className="screenshot-preview">
+                <img src={draft.chartImage} alt={draft.chartImageName || "Trade screenshot preview"} />
+                <div>
+                  <strong>{draft.chartImageName || "Trade screenshot"}</strong>
+                  <div className="screenshot-actions">
+                    <label>
+                      <Upload size={15} />
+                      Replace
+                      <input type="file" accept="image/*" onChange={(event) => attachTradeImage(event.target.files?.[0])} />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateDraft("chartImage", "");
+                        updateDraft("chartImageName", "");
+                        updateDraft("aiAnalysis", undefined);
+                      }}
+                    >
+                      <X size={15} />
+                      Remove
+                    </button>
+                    <button type="button" onClick={analyzeDraftTrade} disabled={isAnalyzing}>
+                      <Brain size={15} />
+                      {isAnalyzing ? "Analyzing..." : "Analyze"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <label className="screenshot-drop">
+                <Upload size={18} />
+                <span>Select screenshot</span>
+                <input type="file" accept="image/*" onChange={(event) => attachTradeImage(event.target.files?.[0])} />
+              </label>
+            )}
+            {analysisError && <p className="analysis-error">{analysisError}</p>}
+            {draft.aiAnalysis && <AnalysisPanel analysis={draft.aiAnalysis} />}
+          </section>
+          <Field label="Notes">
+            <textarea value={draft.notes} onChange={(event) => updateDraft("notes", event.target.value)} rows={4} />
+          </Field>
+          <button className="submit-button">
+            <Plus size={18} />
+            Add short
+          </button>
+        </form>
+        <LotCalculator
+          pair={draft.symbol}
+          settings={lotSettings}
+          onChange={updateLotSetting}
+          onProfileChange={updateAccountProfile}
+          onAddProfile={addAccountProfile}
+          onDeleteProfile={deleteAccountProfile}
+          onApply={(lotSize) => updateDraft("lotSize", Number(lotSize.toFixed(2)))}
+        />
+      </section>
+      )}
+
+      {activeTab === "watchlist" && (
+        <WatchlistPanel activeWindows={activeWindows} onSelectPair={(pair) => {
+          updateDraft("symbol", pair);
+          setActiveTab("add");
+        }} />
+      )}
+
+      {activeTab === "archive" && (
+      <section className="journal-panel">
+        <div className="panel-header">
+          <div>
+            <p className="kicker">Short archive</p>
+            <h2>Evidence table</h2>
+          </div>
+          <div className="table-filters">
+            <select value={selectedAccount} onChange={(event) => setSelectedAccount(event.target.value)}>
+              {accounts.map((account) => (
+                <option key={account}>{account}</option>
+              ))}
+            </select>
+            <select value={selectedSymbol} onChange={(event) => setSelectedSymbol(event.target.value)}>
+              {symbols.map((symbol) => (
+                <option key={symbol}>{symbol}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Account</th>
+                <th>Market</th>
+                <th>Criteria</th>
+                <th>Entry / Target</th>
+                <th>Lot</th>
+                <th>Screenshot</th>
+                <th>AI review</th>
+                <th>Result</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {filteredTrades.map((trade) => (
+                <tr key={trade.id}>
+                  <td>{trade.date}</td>
+                  <td>{trade.account}</td>
+                  <td>
+                    <strong>{trade.symbol}</strong>
+                    <span>Short - {trade.time} - {trade.session}</span>
+                  </td>
+                  <td>
+                    <strong>{setupRead(trade)}</strong>
+                    <span>{setupScore(trade)}/3 criteria passed</span>
+                  </td>
+                  <td>
+                    <strong>{trade.entryTimeframe} entry</strong>
+                    <span>{trade.targetPlan}</span>
+                  </td>
+                  <td>{trade.lotSize.toFixed(2)}</td>
+                  <td>
+                    {trade.chartImage ? (
+                      <a className="archive-shot" href={trade.chartImage} target="_blank" rel="noreferrer" title={trade.chartImageName || "Open screenshot"}>
+                        <img src={trade.chartImage} alt={trade.chartImageName || "Trade screenshot"} />
+                        <span>Open</span>
+                      </a>
+                    ) : (
+                      <span>No image</span>
+                    )}
+                  </td>
+                  <td>
+                    {trade.aiAnalysis ? (
+                      <button className="review-score-button" onClick={() => setSelectedAnalysis(trade)}>
+                        {trade.aiAnalysis.score}/100
+                      </button>
+                    ) : (
+                      <span>Not analyzed</span>
+                    )}
+                  </td>
+                  <td className={trade.resultR >= 0 ? "positive" : "negative"}>{compact(trade.resultR)}</td>
+                  <td>
+                    <button className="delete-button" onClick={() => deleteTrade(trade.id)} title="Delete trade">
+                      <Trash2 size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      )}
+      {selectedAnalysis?.aiAnalysis && (
+        <div className="analysis-modal" role="dialog" aria-modal="true">
+          <div className="analysis-modal-card">
+            <div className="panel-header">
+              <div>
+                <p className="kicker">{selectedAnalysis.symbol} AI review</p>
+                <h2>{selectedAnalysis.aiAnalysis.score}/100 setup quality</h2>
+              </div>
+              <button className="delete-button" onClick={() => setSelectedAnalysis(null)} title="Close AI review">
+                <X size={16} />
+              </button>
+            </div>
+            <AnalysisPanel analysis={selectedAnalysis.aiAnalysis} />
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function Metric({ icon, label, value, detail }: { icon: React.ReactNode; label: string; value: string; detail: string }) {
+  return (
+    <motion.article className="metric-card" whileHover={{ y: -4 }}>
+      <div className="metric-icon">{icon}</div>
+      <p>{label}</p>
+      <strong>{value}</strong>
+      <span>{detail}</span>
+    </motion.article>
+  );
+}
+
+function AnalysisPanel({ analysis }: { analysis: AiAnalysis }) {
+  const items = [
+    ["Structure", analysis.structure],
+    ["Order Block", analysis.orderBlock],
+    ["BOS/CHoCH", analysis.bosChoch],
+    ["Liquidity", analysis.liquidity],
+    ["FVG", analysis.fvg],
+    ["Trend", analysis.trend],
+    ["Session", analysis.session],
+  ];
+
+  return (
+    <div className="analysis-panel">
+      <div className="analysis-score">
+        <span>Setup quality</span>
+        <strong>{analysis.score}/100</strong>
+        <p>Estimated AI cost: {analysis.costUsd} ({analysis.costPhp})</p>
+      </div>
+      <div className="analysis-grid">
+        {items.map(([label, body]) => (
+          <div key={label}>
+            <span>{label}</span>
+            <p>{body}</p>
+          </div>
+        ))}
+      </div>
+      <div className="analysis-feedback">
+        <strong>Coaching feedback</strong>
+        <p>{analysis.feedback}</p>
+      </div>
+    </div>
+  );
+}
+
+function WatchlistPanel({
+  activeWindows,
+  onSelectPair,
+  compactView = false,
+}: {
+  activeWindows: typeof watchWindows;
+  onSelectPair: (pair: string) => void;
+  compactView?: boolean;
+}) {
+  const activePairs = new Set(activeWindows.map((window) => window.pair));
+  const rows = compactView ? watchWindows.slice(0, 4) : watchWindows;
+
+  return (
+    <section className={`watchlist-panel ${compactView ? "compact" : ""}`}>
+      <div className="panel-header">
+        <div>
+          <p className="kicker">OB timing map</p>
+          <h2>Pairs to watch</h2>
+        </div>
+        <div className={`live-window ${activeWindows.length ? "active" : ""}`}>
+          <span />
+          {activeWindows.length ? `${activeWindows.length} live` : "Standby"}
+        </div>
+      </div>
+      <div className="watchlist-grid">
+        {rows.map((window) => {
+          const isActive = activePairs.has(window.pair);
+          return (
+            <article className={`watch-card ${isActive ? "active" : ""}`} key={window.pair}>
+              <div className="watch-card-top">
+                <div>
+                  <span className="pair-flag">{window.flag}</span>
+                  <h3>{window.pair}</h3>
+                </div>
+                <strong>{stars(window.rating)}</strong>
+              </div>
+              <p className="watch-time">{window.display}</p>
+              {!compactView && <p className="watch-why">{window.why}</p>}
+              <button type="button" onClick={() => onSelectPair(window.pair)}>
+                <Plus size={15} />
+                Prepare short
+              </button>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function LotCalculator({
+  pair,
+  settings,
+  onChange,
+  onProfileChange,
+  onAddProfile,
+  onDeleteProfile,
+  onApply,
+}: {
+  pair: string;
+  settings: LotSettings;
+  onChange: <K extends keyof LotSettings>(key: K, value: LotSettings[K]) => void;
+  onProfileChange: (id: string, patch: Partial<AccountProfile>) => void;
+  onAddProfile: () => void;
+  onDeleteProfile: (id: string) => void;
+  onApply: (lotSize: number) => void;
+}) {
+  const activeProfile = settings.profiles.find((profile) => profile.id === settings.activeProfileId) ?? settings.profiles[0];
+  const riskAmount = (activeProfile.accountSize * activeProfile.riskPercent) / 100;
+  const pipValue = pipValuePerLot(pair, settings);
+  const lotSize = calculateLotSize(pair, settings);
+  const profileLots = settings.profiles.map((profile) => {
+    const profileRiskAmount = (profile.accountSize * profile.riskPercent) / 100;
+    const profileLotSize = settings.stopLossPips && pipValue ? profileRiskAmount / (settings.stopLossPips * pipValue) : 0;
+    return { ...profile, riskAmount: profileRiskAmount, lotSize: profileLotSize };
+  });
+  const conversionNote = pair.endsWith("JPY")
+    ? "JPY pairs use 1000 x (1 / USDJPY). Update this daily."
+    : pair.endsWith("AUD")
+      ? "EURAUD uses 10 x AUDUSD. Update AUDUSD daily."
+      : "USD quote pairs use about $10 per pip per standard lot.";
+
+  return (
+    <section className="lot-calculator">
+      <div className="panel-header">
+        <div>
+          <p className="kicker">Position sizing</p>
+          <h2>Lot size calculator</h2>
+        </div>
+        <Calculator size={24} />
+      </div>
+      <div className="calculator-grid">
+        <Field label="Account profile">
+          <select value={settings.activeProfileId} onChange={(event) => onChange("activeProfileId", event.target.value)}>
+            {settings.profiles.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Stop loss pips">
+          <input type="number" min="0" step="0.1" value={settings.stopLossPips} onChange={(event) => onChange("stopLossPips", Number(event.target.value))} />
+        </Field>
+        <Field label="JPY to USD">
+          <input type="number" min="0" step="0.0001" value={settings.jpyToUsd} onChange={(event) => onChange("jpyToUsd", Number(event.target.value))} />
+        </Field>
+        <Field label="AUD to USD">
+          <input type="number" min="0" step="0.0001" value={settings.audToUsd} onChange={(event) => onChange("audToUsd", Number(event.target.value))} />
+        </Field>
+      </div>
+      <div className="calculator-result">
+        <div>
+          <span>{activeProfile.name} risk</span>
+          <strong>${riskAmount.toFixed(2)}</strong>
+          <p>
+            ${activeProfile.accountSize.toLocaleString()} account at {activeProfile.riskPercent}% risk.
+          </p>
+        </div>
+        <div>
+          <span>Selected lot size</span>
+          <strong>{lotSize.toFixed(2)}</strong>
+          <button type="button" onClick={() => onApply(lotSize)}>
+            Apply to trade
+          </button>
+        </div>
+      </div>
+      <div className="profile-lot-panel">
+        <div className="profile-lot-head">
+          <span>Account</span>
+          <span>Risk</span>
+          <span>Suggested lot</span>
+        </div>
+        {profileLots.map((profile) => (
+          <button
+            className={profile.id === settings.activeProfileId ? "active" : ""}
+            key={profile.id}
+            type="button"
+            onClick={() => {
+              onChange("activeProfileId", profile.id);
+              onApply(profile.lotSize);
+            }}
+          >
+            <span>{profile.name}</span>
+            <span>${profile.riskAmount.toFixed(2)}</span>
+            <strong>{profile.lotSize.toFixed(2)}</strong>
+          </button>
+        ))}
+      </div>
+      <div className="calculator-result single">
+        <div>
+          <span>{pair} pip value</span>
+          <strong>${pipValue.toFixed(2)} / lot</strong>
+          <p>{conversionNote}</p>
+        </div>
+      </div>
+      <div className="account-profile-panel">
+        <div className="section-title">
+          <Wallet size={18} />
+          <div>
+            <h3>Account profiles</h3>
+            <p>Pre-add your account sizes and risk percent. The calculator uses the selected profile above.</p>
+          </div>
+          <button type="button" onClick={onAddProfile}>
+            <Plus size={15} />
+            Add
+          </button>
+        </div>
+        <div className="account-profile-grid">
+          <div className="account-profile-head">
+            <span>Name</span>
+            <span>Account size</span>
+            <span>Risk %</span>
+            <span />
+          </div>
+          {settings.profiles.map((profile) => (
+            <div className="account-profile-row" key={profile.id}>
+              <input value={profile.name} onChange={(event) => onProfileChange(profile.id, { name: event.target.value })} />
+              <input
+                type="number"
+                min="0"
+                step="100"
+                value={profile.accountSize}
+                onChange={(event) => onProfileChange(profile.id, { accountSize: Number(event.target.value) })}
+              />
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={profile.riskPercent}
+                onChange={(event) => onProfileChange(profile.id, { riskPercent: Number(event.target.value) })}
+              />
+              <button type="button" onClick={() => onDeleteProfile(profile.id)} disabled={settings.profiles.length <= 1} title="Delete account profile">
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ChartsSection({ analytics }: { analytics: ReturnType<typeof buildAnalytics> }) {
+  return (
+    <section className="charts-grid">
+      <ChartPanel title="Equity curve" icon={<LineIcon size={18} />}>
+        <ResponsiveContainer width="100%" height={280}>
+          <AreaChart data={analytics.equity}>
+            <defs>
+              <linearGradient id="equity" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#c084fc" stopOpacity={0.65} />
+                <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.04} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="rgba(255,255,255,.08)" vertical={false} />
+            <XAxis dataKey="date" stroke="#a7a0ba" tickLine={false} axisLine={false} />
+            <YAxis stroke="#a7a0ba" tickLine={false} axisLine={false} />
+            <Tooltip contentStyle={tooltipStyle} />
+            <Area type="monotone" dataKey="balance" stroke="#c084fc" strokeWidth={3} fill="url(#equity)" />
+          </AreaChart>
+        </ResponsiveContainer>
+      </ChartPanel>
+
+      <ChartPanel title="Setup quality vs outcome" icon={<Activity size={18} />}>
+        <ResponsiveContainer width="100%" height={280}>
+          <ComposedChart data={analytics.setupBuckets}>
+            <CartesianGrid stroke="rgba(255,255,255,.08)" vertical={false} />
+            <XAxis dataKey="bucket" stroke="#a7a0ba" tickLine={false} axisLine={false} />
+            <YAxis stroke="#a7a0ba" tickLine={false} axisLine={false} />
+            <Tooltip contentStyle={tooltipStyle} />
+            <Legend />
+            <Bar dataKey="avgR" fill="#a855f7" radius={[6, 6, 0, 0]} />
+            <Line type="monotone" dataKey="winRate" stroke="#22d3ee" strokeWidth={3} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </ChartPanel>
+
+      <ChartPanel title="Profit by session" icon={<CalendarClock size={18} />}>
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={analytics.sessionStats}>
+            <CartesianGrid stroke="rgba(255,255,255,.08)" vertical={false} />
+            <XAxis dataKey="session" stroke="#a7a0ba" tickLine={false} axisLine={false} />
+            <YAxis stroke="#a7a0ba" tickLine={false} axisLine={false} />
+            <Tooltip contentStyle={tooltipStyle} />
+            <Bar dataKey="r" radius={[6, 6, 0, 0]}>
+              {analytics.sessionStats.map((row) => (
+                <Cell key={row.session} fill={row.r >= 0 ? "#34d399" : "#fb7185"} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartPanel>
+
+      <ChartPanel title="Process quality" icon={<Check size={18} />}>
+        <ResponsiveContainer width="100%" height={260}>
+          <RadarChart data={analytics.radar}>
+            <PolarGrid stroke="rgba(255,255,255,.14)" />
+            <PolarAngleAxis dataKey="metric" tick={{ fill: "#d7c8ff", fontSize: 12 }} />
+            <Radar dataKey="value" stroke="#c084fc" fill="#c084fc" fillOpacity={0.36} />
+            <Tooltip contentStyle={tooltipStyle} />
+          </RadarChart>
+        </ResponsiveContainer>
+      </ChartPanel>
+    </section>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function CriteriaToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className={`criteria-toggle ${checked ? "checked" : ""}`}>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span>{label}</span>
+      <Check size={16} />
+    </label>
+  );
+}
+
+function ChartPanel({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <article className="chart-panel">
+      <div className="chart-title">
+        {icon}
+        <h3>{title}</h3>
+      </div>
+      {children}
+    </article>
+  );
+}
+
+function buildAnalytics(trades: Trade[]) {
+  const sorted = [...trades].sort((a, b) => a.date.localeCompare(b.date));
+  const wins = trades.filter((trade) => trade.resultR > 0);
+  const losses = trades.filter((trade) => trade.resultR < 0);
+  const totalR = trades.reduce((sum, trade) => sum + trade.resultR, 0);
+  const aPlusTrades = trades.filter((trade) => setupScore(trade) === 3);
+  const incompleteTrades = trades.filter((trade) => setupScore(trade) < 3);
+  const setupPassRate = trades.length ? aPlusTrades.length / trades.length : 0;
+  const criteriaCompletion = average(trades.map((trade) => setupScore(trade) / 3));
+  const processScore = Math.round(
+    Math.min(
+      100,
+      Math.max(
+        0,
+        average([
+          criteriaCompletion * 100,
+          average(trades.map((trade) => trade.entryQuality)) * 10,
+          average(trades.map((trade) => trade.exitQuality)) * 10,
+          aPlusTrades.length ? Math.max(0, average(aPlusTrades.map((trade) => trade.resultR)) * 20 + 60) : 55,
+        ]),
+      ),
+    ),
+  );
+
+  const equity = sorted.reduce<{ date: string; balance: number }[]>((rows, trade) => {
+    const previous = rows.at(-1)?.balance ?? 0;
+    rows.push({ date: trade.date.slice(5), balance: Number((previous + trade.resultR).toFixed(2)) });
+    return rows;
+  }, []);
+
+  const setupBuckets = [
+    { bucket: "A+ 3/3", items: aPlusTrades },
+    { bucket: "Missing 1+", items: incompleteTrades },
+  ].map(({ bucket, items }) => ({
+    bucket,
+    avgR: Number(average(items.map((trade) => trade.resultR)).toFixed(2)),
+    winRate: Number((items.length ? items.filter((trade) => trade.resultR > 0).length / items.length : 0).toFixed(2)),
+  }));
+
+  const sessionStats = ["Asia", "London", "New York", "Overlap"].map((session) => ({
+    session,
+    r: Number(trades.filter((trade) => trade.session === session).reduce((sum, trade) => sum + trade.resultR, 0).toFixed(2)),
+  }));
+
+  const targetStats = ["Previous order block", "2R"].map((target) => ({
+    target,
+    r: Number(trades.filter((trade) => trade.targetPlan === target).reduce((sum, trade) => sum + trade.resultR, 0).toFixed(2)),
+  }));
+
+  const timeframeStats = ["5m", "15m", "30m"].map((timeframe) => ({
+    timeframe,
+    r: Number(trades.filter((trade) => trade.entryTimeframe === timeframe).reduce((sum, trade) => sum + trade.resultR, 0).toFixed(2)),
+  }));
+
+  const radar = [
+    { metric: "1H OB", value: trades.length ? Math.round((trades.filter((trade) => trade.hasOneHourOrderBlock).length / trades.length) * 100) : 0 },
+    { metric: "Opposite", value: trades.length ? Math.round((trades.filter((trade) => trade.hasLastMoveOpposite).length / trades.length) * 100) : 0 },
+    { metric: "CHOCH", value: trades.length ? Math.round((trades.filter((trade) => trade.hasPreviousChangeOfStructure).length / trades.length) * 100) : 0 },
+    { metric: "Entry", value: Math.round(average(trades.map((trade) => trade.entryQuality)) * 10) },
+    { metric: "Exit", value: Math.round(average(trades.map((trade) => trade.exitQuality)) * 10) },
+  ];
+
+  return {
+    count: trades.length,
+    wins: wins.length,
+    losses: losses.length,
+    totalR,
+    winRate: trades.length ? wins.length / trades.length : 0,
+    aPlusCount: aPlusTrades.length,
+    setupPassRate,
+    criteriaCompletion,
+    processScore,
+    equity,
+    setupBuckets,
+    sessionStats,
+    targetStats,
+    timeframeStats,
+    radar,
+    aPlusR: aPlusTrades.reduce((sum, trade) => sum + trade.resultR, 0),
+    incompleteR: incompleteTrades.reduce((sum, trade) => sum + trade.resultR, 0),
+  };
+}
+
+function buildCoachNotes(trades: Trade[]) {
+  const analytics = buildAnalytics(trades);
+  const worstSession = analytics.sessionStats.sort((a, b) => a.r - b.r)[0];
+  const bestTarget = analytics.targetStats.sort((a, b) => b.r - a.r)[0];
+  const bestTimeframe = analytics.timeframeStats.sort((a, b) => b.r - a.r)[0];
+
+  return [
+    {
+      title: analytics.setupPassRate >= 0.7 ? "Criteria discipline is strong" : "Protect the 3-rule filter",
+      body: `${percent(analytics.setupPassRate)} of logged shorts have all three criteria. Keep incomplete setups separate so they do not dilute the core order block model.`,
+    },
+    {
+      title: analytics.aPlusR > analytics.incompleteR ? "A+ shorts are leading" : "Incomplete shorts are costing clarity",
+      body:
+        analytics.aPlusR > analytics.incompleteR
+          ? `The 3/3 setups are net ${compact(analytics.aPlusR)}. That is the clean sample to size from first.`
+          : `Incomplete setups are net ${compact(analytics.incompleteR)}. Consider marking them as observation-only until the sample improves.`,
+    },
+    {
+      title: bestTarget ? `${bestTarget.target} target leads` : "Target data is early",
+      body: bestTarget
+        ? `${bestTarget.target} is currently net ${compact(bestTarget.r)}. Compare it against the other target before changing take-profit rules.`
+        : "Log a few more shorts before trusting target stats.",
+    },
+    {
+      title: `Watch ${worstSession?.session ?? "your weakest session"}`,
+      body: `${worstSession?.session ?? "The weakest session"} is currently ${compact(worstSession?.r ?? 0)}. Best lower-timeframe entry so far: ${bestTimeframe?.timeframe ?? "not enough data"}.`,
+    },
+  ];
+}
+
+const tooltipStyle = {
+  background: "rgba(18, 7, 31, .95)",
+  border: "1px solid rgba(216, 180, 254, .24)",
+  borderRadius: "8px",
+  color: "#f7f1ff",
+};
+
+createRoot(document.getElementById("root")!).render(<App />);
