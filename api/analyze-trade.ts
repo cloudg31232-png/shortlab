@@ -11,6 +11,11 @@ type TradeContext = {
     previousChangeOfStructure: boolean;
   };
 };
+type TradeImageInput = {
+  kind: string;
+  label: string;
+  image: string;
+};
 
 const analysisSchema = {
   type: "object",
@@ -67,9 +72,10 @@ export default async function handler(request: any, response: any) {
   }
 
   try {
-    const { trade, image } = request.body as { trade?: TradeContext; image?: string };
-    if (!trade || !image || !image.startsWith("data:image/")) {
-      response.status(400).json({ error: "Trade context and screenshot image are required." });
+    const { trade, images } = request.body as { trade?: TradeContext; images?: TradeImageInput[] };
+    const validImages = (images ?? []).filter((item) => item.image?.startsWith("data:image/"));
+    if (!trade || !validImages.length) {
+      response.status(400).json({ error: "Trade context and at least one screenshot image are required." });
       return;
     }
 
@@ -86,25 +92,28 @@ export default async function handler(request: any, response: any) {
           {
             role: "system",
             content:
-              "You are an expert short-only ICT/order-block trading coach. Analyze screenshots for bearish 1H order block setups only. Be strict, practical, and concise. The user's model requires: 1H order block, last move in the opposite direction into the zone, previous BOS/CHoCH, then entry on 5m/15m/30m. Targets are previous order block or 2R. If the image is unclear, say so and reduce the score.",
+              "You are an expert short-only ICT/order-block trading coach. Analyze screenshots for bearish 1H order block setups only. Be strict, practical, and concise. The user's model requires: image 1 can show the 1H order block that formed, image 2 can show lower-timeframe entry analysis on 5m/15m/30m, and image 3 can show post-trade outcome. Required setup logic: 1H order block, last move in the opposite direction into the zone, previous BOS/CHoCH, then entry on 5m/15m/30m. Targets are previous order block or 2R. If an image is missing or unclear, say so and reduce the score.",
           },
           {
             role: "user",
             content: [
               {
                 type: "input_text",
-                text: `Analyze this trade screenshot and context. Return JSON only.
+                text: `Analyze these trade screenshots and context. Return JSON only.
 
 Trade context:
 ${JSON.stringify(trade, null, 2)}
 
+Images attached:
+${validImages.map((item, index) => `${index + 1}. ${item.label} (${item.kind})`).join("\n")}
+
 Score from 0-100. Coach specifically on Structure, Order Block, BOS/CHoCH, Liquidity, FVG, Trend, Session, and final feedback.
-Cost estimate to display: $0.09-$0.18 USD, PHP 5-PHP 10.`,
+Cost estimate to display: PHP ${validImages.length * 5}-PHP ${validImages.length * 10}, based on PHP 5-PHP 10 per analyzed image.`,
               },
-              {
+              ...validImages.map((item) => ({
                 type: "input_image",
-                image_url: image,
-              },
+                image_url: item.image,
+              })),
             ],
           },
         ],
@@ -130,8 +139,8 @@ Cost estimate to display: $0.09-$0.18 USD, PHP 5-PHP 10.`,
       analysis: {
         ...parsed,
         score: Math.max(0, Math.min(100, Math.round(Number(parsed.score)))),
-        costUsd: parsed.costUsd || "$0.09-$0.18",
-        costPhp: parsed.costPhp || "PHP 5-PHP 10",
+        costUsd: parsed.costUsd || `$${(validImages.length * 0.09).toFixed(2)}-$${(validImages.length * 0.18).toFixed(2)}`,
+        costPhp: parsed.costPhp || `PHP ${validImages.length * 5}-PHP ${validImages.length * 10}`,
         createdAt: parsed.createdAt || new Date().toISOString(),
         model,
       },

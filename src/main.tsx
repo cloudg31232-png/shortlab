@@ -81,6 +81,13 @@ type AiAnalysis = {
   createdAt: string;
   model?: string;
 };
+type TradeImageKind = "oneHourOrderBlock" | "lowerTimeframe" | "postTrade";
+type TradeImage = {
+  kind: TradeImageKind;
+  label: string;
+  image: string;
+  name: string;
+};
 
 type Trade = {
   id: string;
@@ -102,6 +109,7 @@ type Trade = {
   exitQuality: number;
   chartImage?: string;
   chartImageName?: string;
+  tradeImages?: TradeImage[];
   aiAnalysis?: AiAnalysis;
   notes: string;
 };
@@ -206,8 +214,7 @@ const blankTrade: Omit<Trade, "id"> = {
   outcome: "BE",
   entryQuality: 7,
   exitQuality: 7,
-  chartImage: "",
-  chartImageName: "",
+  tradeImages: [],
   aiAnalysis: undefined,
   notes: "",
 };
@@ -216,6 +223,11 @@ const storageKey = "edgelab.trades.v2.order-block-shorts";
 const legacyStorageKey = "edgelab.trades.v1";
 const lotSettingsKey = "shortlab.lot-settings.v1";
 const watchPairs = ["AUDJPY", "NZDJPY", "AUDUSD", "EURJPY", "GBPUSD", "EURUSD", "EURAUD"] as const;
+const imageSlots: Array<{ kind: TradeImageKind; label: string; help: string }> = [
+  { kind: "oneHourOrderBlock", label: "1H order block", help: "The 1H OB that formed before the short idea." },
+  { kind: "lowerTimeframe", label: "Lower timeframe analysis", help: "5m, 15m, or 30m entry confirmation and structure." },
+  { kind: "postTrade", label: "Post-trade review", help: "Later screenshot after target, stop, or management." },
+];
 
 const watchWindows = [
   {
@@ -409,11 +421,27 @@ function setupRead(trade: Pick<Trade, "hasOneHourOrderBlock" | "hasLastMoveOppos
   return "Skip zone";
 }
 
+function getTradeImage(images: TradeImage[] | undefined, kind: TradeImageKind) {
+  return images?.find((image) => image.kind === kind);
+}
+
 function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
   return trades.map((trade, index) => {
     const time = trade.time ?? "15:00";
     const resultR = Number(trade.resultR ?? 0);
     const targetPlan: TargetPlan = trade.targetPlan === "2R" ? "2R" : "Previous order block";
+    const migratedImages =
+      trade.tradeImages ??
+      (trade.chartImage
+        ? [
+            {
+              kind: "lowerTimeframe" as const,
+              label: "Lower timeframe analysis",
+              image: trade.chartImage,
+              name: trade.chartImageName || "Trade screenshot",
+            },
+          ]
+        : []);
     return {
       ...blankTrade,
       ...trade,
@@ -433,8 +461,7 @@ function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
       outcome: resultR > 0 ? "Win" : resultR < 0 ? "Loss" : "BE",
       entryQuality: Number(trade.entryQuality ?? blankTrade.entryQuality),
       exitQuality: Number(trade.exitQuality ?? blankTrade.exitQuality),
-      chartImage: trade.chartImage ?? "",
-      chartImageName: trade.chartImageName ?? "",
+      tradeImages: migratedImages,
       aiAnalysis: trade.aiAnalysis,
       notes: trade.notes ?? "",
     };
@@ -507,7 +534,7 @@ function App() {
     });
   }
 
-  async function attachTradeImage(file: File | undefined) {
+  async function attachTradeImage(kind: TradeImageKind, file: File | undefined) {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       alert("Please choose an image file for the trade screenshot.");
@@ -515,8 +542,17 @@ function App() {
     }
     try {
       const image = await resizeImage(file);
-      updateDraft("chartImage", image);
-      updateDraft("chartImageName", file.name);
+      const slot = imageSlots.find((item) => item.kind === kind);
+      const nextImages = [
+        ...(draft.tradeImages ?? []).filter((item) => item.kind !== kind),
+        {
+          kind,
+          label: slot?.label ?? "Trade screenshot",
+          image,
+          name: file.name,
+        },
+      ];
+      updateDraft("tradeImages", nextImages);
       updateDraft("aiAnalysis", undefined);
     } catch (error) {
       alert(error instanceof Error ? error.message : "Could not process screenshot.");
@@ -524,8 +560,9 @@ function App() {
   }
 
   async function analyzeDraftTrade() {
-    if (!draft.chartImage) {
-      alert("Attach a screenshot first so the trade review has chart context.");
+    const attachedImages = draft.tradeImages ?? [];
+    if (!attachedImages.length) {
+      alert("Attach at least one screenshot first so the trade review has chart context.");
       return;
     }
     setIsAnalyzing(true);
@@ -548,7 +585,7 @@ function App() {
               previousChangeOfStructure: draft.hasPreviousChangeOfStructure,
             },
           },
-          image: draft.chartImage,
+          images: attachedImages,
         }),
       });
       const payload = await response.json();
@@ -900,46 +937,57 @@ function App() {
             <div className="section-title">
               <Image size={18} />
               <div>
-                <h3>Trade screenshot</h3>
-                <p>Attach a chart screenshot from your PC for review.</p>
+                <h3>Trade images</h3>
+                <p>Add pre-trade, lower-timeframe, and post-trade screenshots for AI review.</p>
               </div>
             </div>
-            {draft.chartImage ? (
-              <div className="screenshot-preview">
-                <img src={draft.chartImage} alt={draft.chartImageName || "Trade screenshot preview"} />
-                <div>
-                  <strong>{draft.chartImageName || "Trade screenshot"}</strong>
-                  <div className="screenshot-actions">
-                    <label>
-                      <Upload size={15} />
-                      Replace
-                      <input type="file" accept="image/*" onChange={(event) => attachTradeImage(event.target.files?.[0])} />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        updateDraft("chartImage", "");
-                        updateDraft("chartImageName", "");
-                        updateDraft("aiAnalysis", undefined);
-                      }}
-                    >
-                      <X size={15} />
-                      Remove
-                    </button>
-                    <button type="button" onClick={analyzeDraftTrade} disabled={isAnalyzing}>
-                      <Brain size={15} />
-                      {isAnalyzing ? "Analyzing..." : "Analyze"}
-                    </button>
+            <div className="trade-image-grid">
+              {imageSlots.map((slot) => {
+                const attachedImage = getTradeImage(draft.tradeImages, slot.kind);
+                return (
+                  <div className="trade-image-slot" key={slot.kind}>
+                    <div>
+                      <strong>{slot.label}</strong>
+                      <p>{slot.help}</p>
+                    </div>
+                    {attachedImage ? (
+                      <div className="screenshot-preview compact">
+                        <img src={attachedImage.image} alt={attachedImage.name} />
+                        <div>
+                          <span>{attachedImage.name}</span>
+                          <div className="screenshot-actions">
+                            <label>
+                              <Upload size={15} />
+                              Replace
+                              <input type="file" accept="image/*" onChange={(event) => attachTradeImage(slot.kind, event.target.files?.[0])} />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateDraft("tradeImages", (draft.tradeImages ?? []).filter((item) => item.kind !== slot.kind));
+                                updateDraft("aiAnalysis", undefined);
+                              }}
+                            >
+                              <X size={15} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <label className="screenshot-drop compact">
+                        <Upload size={16} />
+                        <span>Add image</span>
+                        <input type="file" accept="image/*" onChange={(event) => attachTradeImage(slot.kind, event.target.files?.[0])} />
+                      </label>
+                    )}
                   </div>
-                </div>
-              </div>
-            ) : (
-              <label className="screenshot-drop">
-                <Upload size={18} />
-                <span>Select screenshot</span>
-                <input type="file" accept="image/*" onChange={(event) => attachTradeImage(event.target.files?.[0])} />
-              </label>
-            )}
+                );
+              })}
+            </div>
+            <button className="analyze-button" type="button" onClick={analyzeDraftTrade} disabled={isAnalyzing || !(draft.tradeImages ?? []).length}>
+              <Brain size={16} />
+              {isAnalyzing ? "Analyzing images..." : `Analyze ${(draft.tradeImages ?? []).length || ""} image${(draft.tradeImages ?? []).length === 1 ? "" : "s"}`}
+            </button>
             {analysisError && <p className="analysis-error">{analysisError}</p>}
             {draft.aiAnalysis && <AnalysisPanel analysis={draft.aiAnalysis} />}
           </section>
@@ -1025,11 +1073,15 @@ function App() {
                   </td>
                   <td>{trade.lotSize.toFixed(2)}</td>
                   <td>
-                    {trade.chartImage ? (
-                      <a className="archive-shot" href={trade.chartImage} target="_blank" rel="noreferrer" title={trade.chartImageName || "Open screenshot"}>
-                        <img src={trade.chartImage} alt={trade.chartImageName || "Trade screenshot"} />
-                        <span>Open</span>
-                      </a>
+                    {trade.tradeImages?.length ? (
+                      <div className="archive-shots">
+                        {trade.tradeImages.map((image) => (
+                          <a className="archive-shot" href={image.image} target="_blank" rel="noreferrer" title={image.name} key={image.kind}>
+                            <img src={image.image} alt={image.name} />
+                            <span>{image.label}</span>
+                          </a>
+                        ))}
+                      </div>
                     ) : (
                       <span>No image</span>
                     )}

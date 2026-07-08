@@ -563,7 +563,8 @@ td span,
 
 .screenshot-drop,
 .screenshot-actions label,
-.screenshot-actions button {
+.screenshot-actions button,
+.analyze-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -582,9 +583,40 @@ td span,
   font-weight: 900;
 }
 
+.screenshot-drop.compact {
+  min-height: 58px;
+}
+
 .screenshot-drop input,
 .screenshot-actions input {
   display: none;
+}
+
+.trade-image-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.trade-image-slot {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.trade-image-slot strong {
+  display: block;
+}
+
+.trade-image-slot p {
+  margin: 4px 0 0;
+  color: #a9a0b9;
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .screenshot-preview {
@@ -592,6 +624,19 @@ td span,
   grid-template-columns: 128px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
+}
+
+.screenshot-preview.compact {
+  grid-template-columns: 96px minmax(0, 1fr);
+}
+
+.screenshot-preview span {
+  display: block;
+  overflow: hidden;
+  color: #cfc6dc;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .screenshot-preview img {
@@ -620,9 +665,24 @@ td span,
   padding: 0 12px;
 }
 
+.screenshot-actions .compact-remove,
+.screenshot-preview.compact .screenshot-actions button {
+  width: 38px;
+  padding: 0;
+}
+
 .screenshot-actions button {
   border-color: rgba(251, 113, 133, 0.26);
   color: #fb7185;
+}
+
+.analyze-button {
+  width: 100%;
+  min-height: 42px;
+  margin-top: 12px;
+  border-color: rgba(52, 211, 153, 0.34);
+  color: #ecfdf5;
+  background: rgba(52, 211, 153, 0.12);
 }
 
 .analysis-panel {
@@ -1103,7 +1163,7 @@ input[type="range"] {
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 1160px;
+  min-width: 1240px;
 }
 
 th,
@@ -1127,6 +1187,11 @@ td span {
   display: block;
   margin-top: 4px;
   font-size: 0.82rem;
+}
+
+.archive-shots {
+  display: grid;
+  gap: 6px;
 }
 
 .archive-shot {
@@ -1272,6 +1337,7 @@ td span {
   .form-grid,
   .calculator-grid,
   .calculator-result,
+  .trade-image-grid,
   .criteria-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1332,6 +1398,7 @@ td span {
   .calculator-grid,
   .calculator-result,
   .analysis-grid,
+  .trade-image-grid,
   .account-profile-head,
   .account-profile-row,
   .profile-lot-head,
