@@ -2,16 +2,18 @@ type TradeContext = {
   date: string;
   time: string;
   symbol: string;
+  direction: string;
   session: string;
+  scores: {
+    main: number;
+    technical: number;
+    sentiment: number;
+    eco: number;
+  };
   entryTimeframe: string;
   stopLossPips: number;
   targetR: number;
   exitFrame: string;
-  criteria: {
-    oneHourOrderBlock: boolean;
-    lastMoveOppositeDirection: boolean;
-    previousChangeOfStructure: boolean;
-  };
 };
 type TradeImageInput = {
   kind: string;
@@ -94,7 +96,7 @@ export default async function handler(request: any, response: any) {
           {
             role: "system",
             content:
-              "You are an expert short-only ICT/order-block trading coach. Analyze screenshots for bearish 1H order block setups only. Be strict, practical, and concise. The user's model requires: image 1 can show the 1H order block that formed, image 2 can show lower-timeframe entry analysis on 5m/15m/30m, and image 3 can show post-trade outcome. Required setup logic: 1H order block, last move in the opposite direction into the zone, previous BOS/CHoCH, then entry on 5m/15m/30m. Targets are planned by target R and exit frame: 2R, 3R, previous order block, or previous liquidity area. Use the stop loss pips to judge whether the planned target and exit frame are realistic. If an image is missing or unclear, say so and reduce the score.",
+              "You are an expert Edgefinder-style trading coach. The user logs Main Score, Technical Score, Sentiment Score, and ECO Score. Positive scores mean bullish, negative scores mean bearish, and 0 means neutral. Analyze whether the chart screenshots and planned direction agree with those scores. Be strict, practical, and concise. If an image is missing or unclear, say so and reduce the score.",
           },
           {
             role: "user",
@@ -109,7 +111,7 @@ ${JSON.stringify(trade, null, 2)}
 Images attached:
 ${validImages.map((item, index) => `${index + 1}. ${item.label} (${item.kind})`).join("\n")}
 
-Score from 0-100. Coach specifically on Structure, Order Block, BOS/CHoCH, Liquidity, FVG, Trend, Session, and final feedback.
+Score from 0-100. Coach specifically on Structure, order-flow/technical confirmation, sentiment-score alignment, ECO-score alignment, liquidity, trend, session, and final feedback.
 Cost estimate to display: PHP ${validImages.length * 5}-PHP ${validImages.length * 10}, based on PHP 5-PHP 10 per analyzed image.`,
               },
               ...validImages.map((item) => ({

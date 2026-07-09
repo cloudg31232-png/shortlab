@@ -51,6 +51,7 @@ type Outcome = "Win" | "Loss" | "BE";
 type Session = "Asia" | "London" | "New York" | "Overlap";
 type EntryTimeframe = "5m" | "15m" | "30m";
 type ExitFrame = "2R" | "3R" | "Previous OB" | "Previous liquidity area";
+type Direction = "Long" | "Short";
 type ActiveTab = "dashboard" | "add" | "watchlist" | "archive";
 type AuthMode = "signin" | "signup";
 type AccountProfile = {
@@ -95,11 +96,15 @@ type Trade = {
   time: string;
   symbol: string;
   account: string;
-  direction: "Short";
+  direction: Direction;
   session: Session;
   hasOneHourOrderBlock: boolean;
   hasLastMoveOpposite: boolean;
   hasPreviousChangeOfStructure: boolean;
+  mainScore: number;
+  technicalScore: number;
+  sentimentScore: number;
+  ecoScore: number;
   entryTimeframe: EntryTimeframe;
   stopLossPips: number;
   targetR: number;
@@ -127,13 +132,17 @@ const seedTrades: Trade[] = [
     hasOneHourOrderBlock: true,
     hasLastMoveOpposite: true,
     hasPreviousChangeOfStructure: true,
+    mainScore: -3,
+    technicalScore: -2,
+    sentimentScore: -1,
+    ecoScore: -1,
     entryTimeframe: "5m",
     stopLossPips: 10,
     targetR: 2,
     exitFrame: "Previous OB",
     resultR: 1.8,
     outcome: "Win",
-    notes: "Rejected from the 1H bearish order block and sold the lower-timeframe shift.",
+    notes: "Bearish Edgefinder read aligned with technical pressure and session flow.",
   },
   {
     id: "seed-2",
@@ -146,13 +155,17 @@ const seedTrades: Trade[] = [
     hasOneHourOrderBlock: true,
     hasLastMoveOpposite: false,
     hasPreviousChangeOfStructure: true,
+    mainScore: -1,
+    technicalScore: 1,
+    sentimentScore: -2,
+    ecoScore: 0,
     entryTimeframe: "5m",
     stopLossPips: 12,
     targetR: 2,
     exitFrame: "2R",
     resultR: -1,
     outcome: "Loss",
-    notes: "Short idea was there, but the last move into the block was not clean enough.",
+    notes: "Bearish main read, but technical confirmation was mixed.",
   },
   {
     id: "seed-3",
@@ -165,13 +178,17 @@ const seedTrades: Trade[] = [
     hasOneHourOrderBlock: true,
     hasLastMoveOpposite: true,
     hasPreviousChangeOfStructure: true,
+    mainScore: -4,
+    technicalScore: -3,
+    sentimentScore: -2,
+    ecoScore: -1,
     entryTimeframe: "15m",
     stopLossPips: 15,
     targetR: 3,
     exitFrame: "Previous OB",
     resultR: 2.4,
     outcome: "Win",
-    notes: "Textbook 1H supply, 15m confirmation, clean target into prior demand.",
+    notes: "Strong bearish score stack with clean execution and target plan.",
   },
   {
     id: "seed-4",
@@ -179,18 +196,22 @@ const seedTrades: Trade[] = [
     time: "09:25",
     symbol: "AUDUSD",
     account: "Challenge",
-    direction: "Short",
+    direction: "Long",
     session: "Asia",
     hasOneHourOrderBlock: true,
     hasLastMoveOpposite: true,
     hasPreviousChangeOfStructure: false,
+    mainScore: 2,
+    technicalScore: 1,
+    sentimentScore: 1,
+    ecoScore: 0,
     entryTimeframe: "5m",
     stopLossPips: 9,
     targetR: 2,
     exitFrame: "Previous liquidity area",
     resultR: -0.4,
     outcome: "Loss",
-    notes: "The block held briefly, but structure had not clearly shifted before entry.",
+    notes: "Bullish read was present, but the trade did not fully follow through.",
   },
 ];
 
@@ -204,6 +225,10 @@ const blankTrade: Omit<Trade, "id"> = {
   hasOneHourOrderBlock: true,
   hasLastMoveOpposite: true,
   hasPreviousChangeOfStructure: true,
+  mainScore: -1,
+  technicalScore: -1,
+  sentimentScore: -1,
+  ecoScore: -1,
   entryTimeframe: "5m",
   stopLossPips: 10,
   targetR: 2,
@@ -221,9 +246,15 @@ const storageKey = "edgelab.trades.v2.order-block-shorts";
 const legacyStorageKey = "edgelab.trades.v1";
 const lotSettingsKey = "shortlab.lot-settings.v1";
 const watchPairs = ["AUDJPY", "NZDJPY", "AUDUSD", "EURJPY", "GBPUSD", "EURUSD", "EURAUD"] as const;
+const scoreFields = [
+  { key: "mainScore", label: "Main Score" },
+  { key: "technicalScore", label: "Technical Score" },
+  { key: "sentimentScore", label: "Sentiment Score" },
+  { key: "ecoScore", label: "ECO Score" },
+] as const;
 const imageSlots: Array<{ kind: TradeImageKind; label: string; help: string }> = [
-  { kind: "oneHourOrderBlock", label: "1H order block", help: "The 1H OB that formed before the short idea." },
-  { kind: "lowerTimeframe", label: "Lower timeframe analysis", help: "5m, 15m, or 30m entry confirmation and structure." },
+  { kind: "oneHourOrderBlock", label: "Higher timeframe chart", help: "The larger market context behind the Edgefinder bias." },
+  { kind: "lowerTimeframe", label: "Entry chart", help: "Execution screenshot for the trade idea." },
   { kind: "postTrade", label: "Post-trade review", help: "Later screenshot after target, stop, or management." },
 ];
 
@@ -407,15 +438,30 @@ function detectSession(time: string): Session {
   return "New York";
 }
 
-function setupScore(trade: Pick<Trade, "hasOneHourOrderBlock" | "hasLastMoveOpposite" | "hasPreviousChangeOfStructure">) {
-  return [trade.hasOneHourOrderBlock, trade.hasLastMoveOpposite, trade.hasPreviousChangeOfStructure].filter(Boolean).length;
+function scoreBias(value: number) {
+  if (value > 0) return "Bullish";
+  if (value < 0) return "Bearish";
+  return "Neutral";
 }
 
-function setupRead(trade: Pick<Trade, "hasOneHourOrderBlock" | "hasLastMoveOpposite" | "hasPreviousChangeOfStructure">) {
-  const score = setupScore(trade);
-  if (score === 3) return "A+ short";
-  if (score === 2) return "Incomplete";
-  return "Skip zone";
+function scoreDirection(value: number): Direction | "Neutral" {
+  if (value > 0) return "Long";
+  if (value < 0) return "Short";
+  return "Neutral";
+}
+
+function setupScore(trade: Pick<Trade, "mainScore" | "technicalScore" | "sentimentScore" | "ecoScore">) {
+  const mainDirection = scoreDirection(trade.mainScore);
+  if (mainDirection === "Neutral") return 0;
+  return [trade.mainScore, trade.technicalScore, trade.sentimentScore, trade.ecoScore].filter((score) => scoreDirection(score) === mainDirection).length;
+}
+
+function setupRead(trade: Pick<Trade, "mainScore" | "technicalScore" | "sentimentScore" | "ecoScore">) {
+  const mainBias = scoreBias(trade.mainScore);
+  const alignment = setupScore(trade);
+  if (mainBias === "Neutral") return "Neutral read";
+  if (alignment >= 3) return `${mainBias} edge`;
+  return `${mainBias} but mixed`;
 }
 
 function getTradeImage(images: TradeImage[] | undefined, kind: TradeImageKind) {
@@ -438,16 +484,18 @@ async function requestTradeAnalysis(trade: Omit<Trade, "id"> | Trade, images: Tr
         date: trade.date,
         time: trade.time,
         symbol: trade.symbol,
+        direction: trade.direction,
         session: detectSession(trade.time),
+        scores: {
+          main: trade.mainScore,
+          technical: trade.technicalScore,
+          sentiment: trade.sentimentScore,
+          eco: trade.ecoScore,
+        },
         entryTimeframe: trade.entryTimeframe,
         stopLossPips: trade.stopLossPips,
         targetR: trade.targetR,
         exitFrame: trade.exitFrame,
-        criteria: {
-          oneHourOrderBlock: trade.hasOneHourOrderBlock,
-          lastMoveOppositeDirection: trade.hasLastMoveOpposite,
-          previousChangeOfStructure: trade.hasPreviousChangeOfStructure,
-        },
       },
       images,
     }),
@@ -483,13 +531,17 @@ function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
       ...trade,
       id: trade.id ?? `import-${index}`,
       time,
-      direction: "Short" as const,
+      direction: trade.direction === "Long" ? "Long" : "Short",
       session: detectSession(time),
       symbol: (trade.symbol ?? blankTrade.symbol).toUpperCase(),
       account: trade.account?.trim() || blankTrade.account,
       hasOneHourOrderBlock: Boolean(trade.hasOneHourOrderBlock ?? true),
       hasLastMoveOpposite: Boolean(trade.hasLastMoveOpposite ?? true),
       hasPreviousChangeOfStructure: Boolean(trade.hasPreviousChangeOfStructure ?? true),
+      mainScore: Number(trade.mainScore ?? (trade.direction === "Long" ? 1 : -1)),
+      technicalScore: Number(trade.technicalScore ?? (trade.direction === "Long" ? 1 : -1)),
+      sentimentScore: Number(trade.sentimentScore ?? 0),
+      ecoScore: Number(trade.ecoScore ?? 0),
       entryTimeframe: ["5m", "15m", "30m"].includes(String(trade.entryTimeframe)) ? (trade.entryTimeframe as EntryTimeframe) : "5m",
       stopLossPips: Number(legacyTrade.stopLossPips ?? blankTrade.stopLossPips),
       targetR,
@@ -702,7 +754,7 @@ function App() {
     const nextTrade: Trade = {
       ...draft,
       id: tradeId,
-      direction: "Short",
+      direction: draft.direction,
       session: detectSession(draft.time),
       symbol: draft.symbol.trim().toUpperCase(),
       account: "Main",
@@ -725,7 +777,7 @@ function App() {
     if (!preTradeImages.length) {
       window.setTimeout(() => {
         setIsAnalyzing(false);
-        setNotice({ type: "success", message: "Short successfully added." });
+        setNotice({ type: "success", message: "Trade successfully added." });
       }, 450);
       return;
     }
@@ -738,7 +790,7 @@ function App() {
         saveTrades(updated);
         return updated;
       });
-      setNotice({ type: "success", message: "Short successfully added and AI review completed." });
+      setNotice({ type: "success", message: "Trade successfully added and AI review completed." });
     } catch (error) {
       const message = error instanceof Error ? error.message : "AI analysis failed.";
       setAnalysisError(message);
@@ -747,7 +799,7 @@ function App() {
         saveTrades(updated);
         return updated;
       });
-      setNotice({ type: "success", message: "Short successfully added. AI review needs attention." });
+      setNotice({ type: "success", message: "Trade successfully added. AI review needs attention." });
     } finally {
       setIsAnalyzing(false);
     }
@@ -782,7 +834,7 @@ function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `order-block-shorts-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `edgelab-trades-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -796,7 +848,7 @@ function App() {
         setTrades(normalized);
         saveTrades(normalized);
       } catch {
-        alert("That file does not look like an order block journal export.");
+        alert("That file does not look like an EdgeLab journal export.");
       }
     };
     reader.readAsText(file);
@@ -844,8 +896,8 @@ function App() {
         <div className="nav-brand">
           <div className="brand-mark">SL</div>
           <div>
-            <strong>ShortLab</strong>
-            <span>Order Block Journal</span>
+            <strong>EdgeLab</strong>
+            <span>Edgefinder Journal</span>
           </div>
         </div>
         <div className="nav-tabs" aria-label="Primary sections">
@@ -855,7 +907,7 @@ function App() {
           </button>
           <button className={activeTab === "add" ? "active" : ""} onClick={() => setActiveTab("add")}>
             <Plus size={16} />
-            Add Short
+            Add Trade
           </button>
           <button className={activeTab === "watchlist" ? "active" : ""} onClick={() => setActiveTab("watchlist")}>
             <CalendarClock size={16} />
@@ -870,7 +922,7 @@ function App() {
         <div className="nav-account">
           <div className={`live-window ${activeWindows.length ? "active" : ""}`}>
             <span />
-            {activeWindows.length ? `${activeWindows.length} OB window${activeWindows.length > 1 ? "s" : ""} live` : "No OB window"}
+            {activeWindows.length ? `${activeWindows.length} session window${activeWindows.length > 1 ? "s" : ""} live` : "No session window"}
           </div>
           <select value={selectedAccount} onChange={(event) => setSelectedAccount(event.target.value)} title="Account filter">
             {accounts.map((account) => (
@@ -887,12 +939,12 @@ function App() {
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }}>
           <div className="eyebrow">
             <Sparkles size={16} />
-            Short-only order block laboratory
+            Edgefinder score laboratory
           </div>
-          <h1>ShortLab</h1>
+          <h1>EdgeLab</h1>
           <p>
-            Track bearish 1H order block setups, confirm the last move against the short, require previous change of
-            structure, then refine entries on 5m, 15m, or 30m toward 2R, 3R, prior order blocks, or liquidity.
+            Track Edgefinder-style bias scores, compare technical, sentiment, and ECO reads, then log the trade
+            result after the setup plays out.
           </p>
         </motion.div>
         <div className="hero-actions">
@@ -911,9 +963,9 @@ function App() {
       {activeTab === "dashboard" && (
         <>
           <section className="metrics-grid">
-            <Metric icon={<Wallet />} label="Net expectancy" value={compact(analytics.totalR)} detail={`${analytics.count} shorts`} />
+            <Metric icon={<Wallet />} label="Net expectancy" value={compact(analytics.totalR)} detail={`${analytics.count} trades`} />
             <Metric icon={<Target />} label="Win rate" value={percent(analytics.winRate)} detail={`${analytics.wins} wins / ${analytics.losses} losses`} />
-            <Metric icon={<Check />} label="Setup pass" value={percent(analytics.setupPassRate)} detail={`${analytics.aPlusCount} A+ shorts`} />
+            <Metric icon={<Check />} label="Score alignment" value={percent(analytics.setupPassRate)} detail={`${analytics.aPlusCount} aligned reads`} />
             <Metric icon={<Landmark />} label="Accounts" value={String(accounts.length - 1)} detail={selectedAccount === "All" ? "All accounts" : selectedAccount} />
           </section>
 
@@ -954,10 +1006,10 @@ function App() {
         <form className="trade-form" onSubmit={addTrade}>
           <div className="panel-header">
             <div>
-              <p className="kicker">New short</p>
-              <h2>Capture the setup</h2>
+              <p className="kicker">New trade</p>
+              <h2>Capture the Edgefinder read</h2>
             </div>
-            <button className="round-action" title="Save short">
+            <button className="round-action" title="Save trade">
               <Save size={18} />
             </button>
           </div>
@@ -977,7 +1029,10 @@ function App() {
               </select>
             </Field>
             <Field label="Direction">
-              <input value="Short only" readOnly />
+              <select value={draft.direction} onChange={(event) => updateDraft("direction", event.target.value as Direction)}>
+                <option>Long</option>
+                <option>Short</option>
+              </select>
             </Field>
             <Field label="Session">
               <input value={detectSession(draft.time)} readOnly />
@@ -988,30 +1043,25 @@ function App() {
             <div className="section-title">
               <Activity size={18} />
               <div>
-                <h3>Order block criteria</h3>
-                <p>All three should be checked before the short is considered valid.</p>
+                <h3>Edgefinder scores</h3>
+                <p>Positive scores are bullish. Negative scores are bearish.</p>
               </div>
             </div>
-            <div className="criteria-grid">
-              <CriteriaToggle
-                label="1H order block"
-                checked={draft.hasOneHourOrderBlock}
-                onChange={(checked) => updateDraft("hasOneHourOrderBlock", checked)}
-              />
-              <CriteriaToggle
-                label="Last move opposite direction"
-                checked={draft.hasLastMoveOpposite}
-                onChange={(checked) => updateDraft("hasLastMoveOpposite", checked)}
-              />
-              <CriteriaToggle
-                label="Previous change of structure"
-                checked={draft.hasPreviousChangeOfStructure}
-                onChange={(checked) => updateDraft("hasPreviousChangeOfStructure", checked)}
-              />
+            <div className="form-grid">
+              {scoreFields.map((field) => (
+                <Field label={field.label} key={field.key}>
+                  <input
+                    type="number"
+                    step="1"
+                    value={draft[field.key]}
+                    onChange={(event) => updateDraft(field.key, Number(event.target.value))}
+                  />
+                </Field>
+              ))}
             </div>
-            <div className={`setup-read ${setupScore(draft) === 3 ? "complete" : "incomplete"}`}>
-              <strong>{setupScore(draft)}/3</strong>
-              <span>{setupRead(draft)}</span>
+            <div className={`setup-read ${draft.mainScore >= 0 ? "complete" : "incomplete"}`}>
+              <strong>{scoreBias(draft.mainScore)}</strong>
+              <span>{setupScore(draft)}/4 score alignment - {setupRead(draft)}</span>
             </div>
           </section>
 
@@ -1106,7 +1156,7 @@ function App() {
               })}
             </div>
             <p className="analysis-hint">
-              Initial AI review uses 1H order block + lower-timeframe images when you click Add short. Post-trade review can be analyzed later.
+              Initial AI review uses the chart images when you click Add Trade. Post-trade review can be analyzed later.
             </p>
             {analysisError && <p className="analysis-error">{analysisError}</p>}
             {draft.aiAnalysis && <AnalysisPanel analysis={draft.aiAnalysis} />}
@@ -1116,7 +1166,7 @@ function App() {
           </Field>
           <button className="submit-button" disabled={isAnalyzing}>
             <Plus size={18} />
-            {isAnalyzing ? "Adding + analyzing..." : "Add short"}
+            {isAnalyzing ? "Adding + analyzing..." : "Add trade"}
           </button>
         </form>
         <LotCalculator
@@ -1142,7 +1192,7 @@ function App() {
       <section className="journal-panel">
         <div className="panel-header">
           <div>
-            <p className="kicker">Short archive</p>
+            <p className="kicker">Trade archive</p>
             <h2>Evidence table</h2>
           </div>
           <div className="table-filters">
@@ -1165,8 +1215,8 @@ function App() {
                 <th>Date</th>
                 <th>Account</th>
                 <th>Market</th>
-                <th>Criteria</th>
-                <th>Entry / Exit</th>
+                <th>Edgefinder read</th>
+                <th>Direction / Session</th>
                 <th>SL / Target</th>
                 <th>Screenshot</th>
                 <th>AI review</th>
@@ -1181,15 +1231,17 @@ function App() {
                   <td>{trade.account}</td>
                   <td>
                     <strong>{trade.symbol}</strong>
-                    <span>Short - {trade.time} - {trade.session}</span>
+                    <span>{trade.direction} - {trade.time} - {trade.session}</span>
                   </td>
                   <td>
                     <strong>{setupRead(trade)}</strong>
-                    <span>{setupScore(trade)}/3 criteria passed</span>
+                    <span>
+                      Main {trade.mainScore} - Tech {trade.technicalScore} - Sent {trade.sentimentScore} - ECO {trade.ecoScore}
+                    </span>
                   </td>
                   <td>
-                    <strong>{trade.entryTimeframe} entry</strong>
-                    <span>{trade.exitFrame}</span>
+                    <strong>{trade.direction}</strong>
+                    <span>{trade.session}</span>
                   </td>
                   <td>
                     <strong>{trade.stopLossPips} pips</strong>
@@ -1307,8 +1359,8 @@ function App() {
             <div className="loading-ring">
               <Sparkles size={24} />
             </div>
-            <strong>Adding your short</strong>
-            <p>Please keep this page open while ShortLab saves the trade and completes the AI review.</p>
+            <strong>Adding your trade</strong>
+            <p>Please keep this page open while EdgeLab saves the trade and completes the AI review.</p>
           </div>
         </div>
       )}
@@ -1383,10 +1435,10 @@ function Metric({ icon, label, value, detail }: { icon: React.ReactNode; label: 
 function AnalysisPanel({ analysis }: { analysis: AiAnalysis }) {
   const items = [
     ["Structure", analysis.structure],
-    ["Order Block", analysis.orderBlock],
-    ["BOS/CHoCH", analysis.bosChoch],
+    ["Technical confirmation", analysis.orderBlock],
+    ["Score alignment", analysis.bosChoch],
     ["Liquidity", analysis.liquidity],
-    ["FVG", analysis.fvg],
+    ["Execution gap", analysis.fvg],
     ["Trend", analysis.trend],
     ["Session", analysis.session],
   ];
@@ -1430,7 +1482,7 @@ function WatchlistPanel({
     <section className={`watchlist-panel ${compactView ? "compact" : ""}`}>
       <div className="panel-header">
         <div>
-          <p className="kicker">OB timing map</p>
+          <p className="kicker">Session timing map</p>
           <h2>Pairs to watch</h2>
         </div>
         <div className={`live-window ${activeWindows.length ? "active" : ""}`}>
@@ -1454,7 +1506,7 @@ function WatchlistPanel({
               {!compactView && <p className="watch-why">{window.why}</p>}
               <button type="button" onClick={() => onSelectPair(window.pair)}>
                 <Plus size={15} />
-                Prepare short
+                Prepare trade
               </button>
             </article>
           );
@@ -1712,10 +1764,10 @@ function buildAnalytics(trades: Trade[]) {
   const wins = trades.filter((trade) => trade.resultR > 0);
   const losses = trades.filter((trade) => trade.resultR < 0);
   const totalR = trades.reduce((sum, trade) => sum + trade.resultR, 0);
-  const aPlusTrades = trades.filter((trade) => setupScore(trade) === 3);
+  const aPlusTrades = trades.filter((trade) => setupScore(trade) >= 3);
   const incompleteTrades = trades.filter((trade) => setupScore(trade) < 3);
   const setupPassRate = trades.length ? aPlusTrades.length / trades.length : 0;
-  const criteriaCompletion = average(trades.map((trade) => setupScore(trade) / 3));
+  const criteriaCompletion = average(trades.map((trade) => setupScore(trade) / 4));
   const analyzedTrades = trades.filter((trade) => trade.aiAnalysis);
   const aiScoreAverage = average(analyzedTrades.map((trade) => trade.aiAnalysis?.score ?? 0));
   const processScore = Math.round(
@@ -1740,8 +1792,8 @@ function buildAnalytics(trades: Trade[]) {
   }, []);
 
   const setupBuckets = [
-    { bucket: "A+ 3/3", items: aPlusTrades },
-    { bucket: "Missing 1+", items: incompleteTrades },
+    { bucket: "Aligned 3+", items: aPlusTrades },
+    { bucket: "Mixed read", items: incompleteTrades },
   ].map(({ bucket, items }) => ({
     bucket,
     avgR: Number(average(items.map((trade) => trade.resultR)).toFixed(2)),
@@ -1764,9 +1816,10 @@ function buildAnalytics(trades: Trade[]) {
   }));
 
   const radar = [
-    { metric: "1H OB", value: trades.length ? Math.round((trades.filter((trade) => trade.hasOneHourOrderBlock).length / trades.length) * 100) : 0 },
-    { metric: "Opposite", value: trades.length ? Math.round((trades.filter((trade) => trade.hasLastMoveOpposite).length / trades.length) * 100) : 0 },
-    { metric: "CHOCH", value: trades.length ? Math.round((trades.filter((trade) => trade.hasPreviousChangeOfStructure).length / trades.length) * 100) : 0 },
+    { metric: "Main", value: Math.round(Math.min(100, Math.abs(average(trades.map((trade) => trade.mainScore))) * 25)) },
+    { metric: "Tech", value: Math.round(Math.min(100, Math.abs(average(trades.map((trade) => trade.technicalScore))) * 25)) },
+    { metric: "Sentiment", value: Math.round(Math.min(100, Math.abs(average(trades.map((trade) => trade.sentimentScore))) * 25)) },
+    { metric: "ECO", value: Math.round(Math.min(100, Math.abs(average(trades.map((trade) => trade.ecoScore))) * 25)) },
     { metric: "AI Score", value: Math.round(aiScoreAverage) },
     { metric: "Reviewed", value: trades.length ? Math.round((analyzedTrades.length / trades.length) * 100) : 0 },
   ];
@@ -1800,21 +1853,21 @@ function buildCoachNotes(trades: Trade[]) {
 
   return [
     {
-      title: analytics.setupPassRate >= 0.7 ? "Criteria discipline is strong" : "Protect the 3-rule filter",
-      body: `${percent(analytics.setupPassRate)} of logged shorts have all three criteria. Keep incomplete setups separate so they do not dilute the core order block model.`,
+      title: analytics.setupPassRate >= 0.7 ? "Score alignment is strong" : "Respect mixed Edgefinder reads",
+      body: `${percent(analytics.setupPassRate)} of logged trades have at least three score components aligned with the Main Score. Keep mixed reads smaller until the sample improves.`,
     },
     {
-      title: analytics.aPlusR > analytics.incompleteR ? "A+ shorts are leading" : "Incomplete shorts are costing clarity",
+      title: analytics.aPlusR > analytics.incompleteR ? "Aligned reads are leading" : "Mixed reads are costing clarity",
       body:
         analytics.aPlusR > analytics.incompleteR
-          ? `The 3/3 setups are net ${compact(analytics.aPlusR)}. That is the clean sample to size from first.`
-          : `Incomplete setups are net ${compact(analytics.incompleteR)}. Consider marking them as observation-only until the sample improves.`,
+          ? `Aligned score reads are net ${compact(analytics.aPlusR)}. That is the clean sample to size from first.`
+          : `Mixed score reads are net ${compact(analytics.incompleteR)}. Consider marking them as observation-only until the sample improves.`,
     },
     {
       title: bestExitFrame ? `${bestExitFrame.exitFrame} exit leads` : "Exit data is early",
       body: bestExitFrame
         ? `${bestExitFrame.exitFrame} is currently net ${compact(bestExitFrame.r)}. Compare it against the other exit frames before changing take-profit rules.`
-        : "Log a few more shorts before trusting exit-frame stats.",
+        : "Log a few more trades before trusting exit-frame stats.",
     },
     {
       title: `Watch ${worstSession?.session ?? "your weakest session"}`,
