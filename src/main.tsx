@@ -50,7 +50,7 @@ import "./styles.css";
 type Outcome = "Win" | "Loss" | "BE";
 type Session = "Asia" | "London" | "New York" | "Overlap";
 type EntryTimeframe = "5m" | "15m" | "30m";
-type TargetPlan = "Previous order block" | "2R";
+type ExitFrame = "2R" | "3R" | "Previous OB" | "Previous liquidity area";
 type ActiveTab = "dashboard" | "add" | "watchlist" | "archive";
 type AuthMode = "signin" | "signup";
 type AccountProfile = {
@@ -60,7 +60,6 @@ type AccountProfile = {
   riskPercent: number;
 };
 type LotSettings = {
-  stopLossPips: number;
   jpyToUsd: number;
   audToUsd: number;
   activeProfileId: string;
@@ -102,8 +101,9 @@ type Trade = {
   hasLastMoveOpposite: boolean;
   hasPreviousChangeOfStructure: boolean;
   entryTimeframe: EntryTimeframe;
-  targetPlan: TargetPlan;
-  lotSize: number;
+  stopLossPips: number;
+  targetR: number;
+  exitFrame: ExitFrame;
   resultR: number;
   outcome: Outcome;
   chartImage?: string;
@@ -128,8 +128,9 @@ const seedTrades: Trade[] = [
     hasLastMoveOpposite: true,
     hasPreviousChangeOfStructure: true,
     entryTimeframe: "5m",
-    targetPlan: "Previous order block",
-    lotSize: 0.1,
+    stopLossPips: 10,
+    targetR: 2,
+    exitFrame: "Previous OB",
     resultR: 1.8,
     outcome: "Win",
     notes: "Rejected from the 1H bearish order block and sold the lower-timeframe shift.",
@@ -146,8 +147,9 @@ const seedTrades: Trade[] = [
     hasLastMoveOpposite: false,
     hasPreviousChangeOfStructure: true,
     entryTimeframe: "5m",
-    targetPlan: "2R",
-    lotSize: 0.1,
+    stopLossPips: 12,
+    targetR: 2,
+    exitFrame: "2R",
     resultR: -1,
     outcome: "Loss",
     notes: "Short idea was there, but the last move into the block was not clean enough.",
@@ -164,8 +166,9 @@ const seedTrades: Trade[] = [
     hasLastMoveOpposite: true,
     hasPreviousChangeOfStructure: true,
     entryTimeframe: "15m",
-    targetPlan: "Previous order block",
-    lotSize: 0.1,
+    stopLossPips: 15,
+    targetR: 3,
+    exitFrame: "Previous OB",
     resultR: 2.4,
     outcome: "Win",
     notes: "Textbook 1H supply, 15m confirmation, clean target into prior demand.",
@@ -182,8 +185,9 @@ const seedTrades: Trade[] = [
     hasLastMoveOpposite: true,
     hasPreviousChangeOfStructure: false,
     entryTimeframe: "5m",
-    targetPlan: "2R",
-    lotSize: 0.1,
+    stopLossPips: 9,
+    targetR: 2,
+    exitFrame: "Previous liquidity area",
     resultR: -0.4,
     outcome: "Loss",
     notes: "The block held briefly, but structure had not clearly shifted before entry.",
@@ -201,8 +205,9 @@ const blankTrade: Omit<Trade, "id"> = {
   hasLastMoveOpposite: true,
   hasPreviousChangeOfStructure: true,
   entryTimeframe: "5m",
-  targetPlan: "Previous order block",
-  lotSize: 0.1,
+  stopLossPips: 10,
+  targetR: 2,
+  exitFrame: "2R",
   resultR: 0,
   outcome: "BE",
   tradeImages: [],
@@ -303,7 +308,6 @@ function saveTrades(trades: Trade[]) {
 
 function loadLotSettings(): LotSettings {
   const fallback: LotSettings = {
-    stopLossPips: 10,
     jpyToUsd: 0.0067,
     audToUsd: 0.66,
     activeProfileId: "profile-10k",
@@ -360,11 +364,11 @@ function pipValuePerLot(pair: string, settings: LotSettings) {
   return 10;
 }
 
-function calculateLotSize(pair: string, settings: LotSettings) {
+function calculateLotSize(pair: string, settings: LotSettings, stopLossPips: number) {
   const profile = settings.profiles.find((item) => item.id === settings.activeProfileId) ?? settings.profiles[0];
   const pipValue = pipValuePerLot(pair, settings);
-  if (!settings.stopLossPips || !pipValue) return 0;
-  return ((profile.accountSize * profile.riskPercent) / 100) / (settings.stopLossPips * pipValue);
+  if (!stopLossPips || !pipValue) return 0;
+  return ((profile.accountSize * profile.riskPercent) / 100) / (stopLossPips * pipValue);
 }
 
 function resizeImage(file: File) {
@@ -418,6 +422,13 @@ function getTradeImage(images: TradeImage[] | undefined, kind: TradeImageKind) {
   return images?.find((image) => image.kind === kind);
 }
 
+function normalizeExitFrame(value: unknown): ExitFrame {
+  if (value === "3R") return "3R";
+  if (value === "Previous liquidity area") return "Previous liquidity area";
+  if (value === "Previous OB" || value === "Previous order block") return "Previous OB";
+  return "2R";
+}
+
 async function requestTradeAnalysis(trade: Omit<Trade, "id"> | Trade, images: TradeImage[]) {
   const response = await fetch("/api/analyze-trade", {
     method: "POST",
@@ -429,7 +440,9 @@ async function requestTradeAnalysis(trade: Omit<Trade, "id"> | Trade, images: Tr
         symbol: trade.symbol,
         session: detectSession(trade.time),
         entryTimeframe: trade.entryTimeframe,
-        targetPlan: trade.targetPlan,
+        stopLossPips: trade.stopLossPips,
+        targetR: trade.targetR,
+        exitFrame: trade.exitFrame,
         criteria: {
           oneHourOrderBlock: trade.hasOneHourOrderBlock,
           lastMoveOppositeDirection: trade.hasLastMoveOpposite,
@@ -448,9 +461,11 @@ async function requestTradeAnalysis(trade: Omit<Trade, "id"> | Trade, images: Tr
 
 function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
   return trades.map((trade, index) => {
+    const legacyTrade = trade as Partial<Trade> & { targetPlan?: string; lotSize?: number };
     const time = trade.time ?? "15:00";
     const resultR = Number(trade.resultR ?? 0);
-    const targetPlan: TargetPlan = trade.targetPlan === "2R" ? "2R" : "Previous order block";
+    const exitFrame = normalizeExitFrame(legacyTrade.exitFrame ?? legacyTrade.targetPlan);
+    const targetR = Number(legacyTrade.targetR ?? (exitFrame === "3R" ? 3 : 2));
     const migratedImages =
       trade.tradeImages ??
       (trade.chartImage
@@ -476,8 +491,9 @@ function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
       hasLastMoveOpposite: Boolean(trade.hasLastMoveOpposite ?? true),
       hasPreviousChangeOfStructure: Boolean(trade.hasPreviousChangeOfStructure ?? true),
       entryTimeframe: ["5m", "15m", "30m"].includes(String(trade.entryTimeframe)) ? (trade.entryTimeframe as EntryTimeframe) : "5m",
-      targetPlan,
-      lotSize: Number(trade.lotSize ?? blankTrade.lotSize),
+      stopLossPips: Number(legacyTrade.stopLossPips ?? blankTrade.stopLossPips),
+      targetR,
+      exitFrame,
       resultR,
       outcome: resultR > 0 ? "Win" : resultR < 0 ? "Loss" : "BE",
       tradeImages: migratedImages,
@@ -678,7 +694,8 @@ function App() {
       session: detectSession(draft.time),
       symbol: draft.symbol.trim().toUpperCase(),
       account: "Main",
-      lotSize: Number(draft.lotSize),
+      stopLossPips: Number(draft.stopLossPips),
+      targetR: Number(draft.targetR),
       resultR,
       outcome: resultR > 0 ? "Win" : resultR < 0 ? "Loss" : "BE",
       aiStatus: preTradeImages.length ? "pending" : "idle",
@@ -832,7 +849,7 @@ function App() {
           <h1>ShortLab</h1>
           <p>
             Track bearish 1H order block setups, confirm the last move against the short, require previous change of
-            structure, then refine entries on 5m, 15m, or 30m into a prior order block or 2R target.
+            structure, then refine entries on 5m, 15m, or 30m toward 2R, 3R, prior order blocks, or liquidity.
           </p>
         </motion.div>
         <div className="hero-actions">
@@ -963,14 +980,32 @@ function App() {
                 <option>30m</option>
               </select>
             </Field>
-            <Field label="Target">
-              <select value={draft.targetPlan} onChange={(event) => updateDraft("targetPlan", event.target.value as TargetPlan)}>
-                <option>Previous order block</option>
-                <option>2R</option>
+            <Field label="Stop loss">
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                value={draft.stopLossPips}
+                onChange={(event) => updateDraft("stopLossPips", Number(event.target.value))}
+              />
+            </Field>
+            <Field label="Target R">
+              <select value={draft.targetR} onChange={(event) => updateDraft("targetR", Number(event.target.value))}>
+                <option value={1}>1R</option>
+                <option value={1.5}>1.5R</option>
+                <option value={2}>2R</option>
+                <option value={3}>3R</option>
+                <option value={4}>4R</option>
+                <option value={5}>5R</option>
               </select>
             </Field>
-            <Field label="Lot size">
-              <input type="number" step="0.01" min="0" value={draft.lotSize} onChange={(event) => updateDraft("lotSize", Number(event.target.value))} />
+            <Field label="Exit frame">
+              <select value={draft.exitFrame} onChange={(event) => updateDraft("exitFrame", event.target.value as ExitFrame)}>
+                <option>2R</option>
+                <option>3R</option>
+                <option>Previous OB</option>
+                <option>Previous liquidity area</option>
+              </select>
             </Field>
             <Field label="Result">
               <input type="number" step="0.1" value={draft.resultR} onChange={(event) => updateDraft("resultR", Number(event.target.value))} />
@@ -1043,12 +1078,12 @@ function App() {
         </form>
         <LotCalculator
           pair={draft.symbol}
+          stopLossPips={draft.stopLossPips}
           settings={lotSettings}
           onChange={updateLotSetting}
           onProfileChange={updateAccountProfile}
           onAddProfile={addAccountProfile}
           onDeleteProfile={deleteAccountProfile}
-          onApply={(lotSize) => updateDraft("lotSize", Number(lotSize.toFixed(2)))}
         />
       </section>
       )}
@@ -1088,8 +1123,8 @@ function App() {
                 <th>Account</th>
                 <th>Market</th>
                 <th>Criteria</th>
-                <th>Entry / Target</th>
-                <th>Lot</th>
+                <th>Entry / Exit</th>
+                <th>SL / Target</th>
                 <th>Screenshot</th>
                 <th>AI review</th>
                 <th>Result</th>
@@ -1111,9 +1146,12 @@ function App() {
                   </td>
                   <td>
                     <strong>{trade.entryTimeframe} entry</strong>
-                    <span>{trade.targetPlan}</span>
+                    <span>{trade.exitFrame}</span>
                   </td>
-                  <td>{trade.lotSize.toFixed(2)}</td>
+                  <td>
+                    <strong>{trade.stopLossPips} pips</strong>
+                    <span>{trade.targetR}R target</span>
+                  </td>
                   <td>
                     {trade.tradeImages?.length ? (
                       <div className="archive-shots">
@@ -1333,28 +1371,28 @@ function WatchlistPanel({
 
 function LotCalculator({
   pair,
+  stopLossPips,
   settings,
   onChange,
   onProfileChange,
   onAddProfile,
   onDeleteProfile,
-  onApply,
 }: {
   pair: string;
+  stopLossPips: number;
   settings: LotSettings;
   onChange: <K extends keyof LotSettings>(key: K, value: LotSettings[K]) => void;
   onProfileChange: (id: string, patch: Partial<AccountProfile>) => void;
   onAddProfile: () => void;
   onDeleteProfile: (id: string) => void;
-  onApply: (lotSize: number) => void;
 }) {
   const activeProfile = settings.profiles.find((profile) => profile.id === settings.activeProfileId) ?? settings.profiles[0];
   const riskAmount = (activeProfile.accountSize * activeProfile.riskPercent) / 100;
   const pipValue = pipValuePerLot(pair, settings);
-  const lotSize = calculateLotSize(pair, settings);
+  const lotSize = calculateLotSize(pair, settings, stopLossPips);
   const profileLots = settings.profiles.map((profile) => {
     const profileRiskAmount = (profile.accountSize * profile.riskPercent) / 100;
-    const profileLotSize = settings.stopLossPips && pipValue ? profileRiskAmount / (settings.stopLossPips * pipValue) : 0;
+    const profileLotSize = stopLossPips && pipValue ? profileRiskAmount / (stopLossPips * pipValue) : 0;
     return { ...profile, riskAmount: profileRiskAmount, lotSize: profileLotSize };
   });
   const conversionNote = pair.endsWith("JPY")
@@ -1382,9 +1420,6 @@ function LotCalculator({
             ))}
           </select>
         </Field>
-        <Field label="Stop loss pips">
-          <input type="number" min="0" step="0.1" value={settings.stopLossPips} onChange={(event) => onChange("stopLossPips", Number(event.target.value))} />
-        </Field>
         <Field label="JPY to USD">
           <input type="number" min="0" step="0.0001" value={settings.jpyToUsd} onChange={(event) => onChange("jpyToUsd", Number(event.target.value))} />
         </Field>
@@ -1403,9 +1438,7 @@ function LotCalculator({
         <div>
           <span>Selected lot size</span>
           <strong>{lotSize.toFixed(2)}</strong>
-          <button type="button" onClick={() => onApply(lotSize)}>
-            Apply to trade
-          </button>
+          <p>Using {stopLossPips || 0} pip stop loss from the trade form.</p>
         </div>
       </div>
       <div className="profile-lot-panel">
@@ -1421,7 +1454,6 @@ function LotCalculator({
             type="button"
             onClick={() => {
               onChange("activeProfileId", profile.id);
-              onApply(profile.lotSize);
             }}
           >
             <span>{profile.name}</span>
@@ -1626,9 +1658,9 @@ function buildAnalytics(trades: Trade[]) {
     r: Number(trades.filter((trade) => trade.session === session).reduce((sum, trade) => sum + trade.resultR, 0).toFixed(2)),
   }));
 
-  const targetStats = ["Previous order block", "2R"].map((target) => ({
-    target,
-    r: Number(trades.filter((trade) => trade.targetPlan === target).reduce((sum, trade) => sum + trade.resultR, 0).toFixed(2)),
+  const exitFrameStats = ["2R", "3R", "Previous OB", "Previous liquidity area"].map((exitFrame) => ({
+    exitFrame,
+    r: Number(trades.filter((trade) => trade.exitFrame === exitFrame).reduce((sum, trade) => sum + trade.resultR, 0).toFixed(2)),
   }));
 
   const timeframeStats = ["5m", "15m", "30m"].map((timeframe) => ({
@@ -1657,7 +1689,7 @@ function buildAnalytics(trades: Trade[]) {
     equity,
     setupBuckets,
     sessionStats,
-    targetStats,
+    exitFrameStats,
     timeframeStats,
     radar,
     aPlusR: aPlusTrades.reduce((sum, trade) => sum + trade.resultR, 0),
@@ -1668,7 +1700,7 @@ function buildAnalytics(trades: Trade[]) {
 function buildCoachNotes(trades: Trade[]) {
   const analytics = buildAnalytics(trades);
   const worstSession = analytics.sessionStats.sort((a, b) => a.r - b.r)[0];
-  const bestTarget = analytics.targetStats.sort((a, b) => b.r - a.r)[0];
+  const bestExitFrame = analytics.exitFrameStats.sort((a, b) => b.r - a.r)[0];
   const bestTimeframe = analytics.timeframeStats.sort((a, b) => b.r - a.r)[0];
 
   return [
@@ -1684,10 +1716,10 @@ function buildCoachNotes(trades: Trade[]) {
           : `Incomplete setups are net ${compact(analytics.incompleteR)}. Consider marking them as observation-only until the sample improves.`,
     },
     {
-      title: bestTarget ? `${bestTarget.target} target leads` : "Target data is early",
-      body: bestTarget
-        ? `${bestTarget.target} is currently net ${compact(bestTarget.r)}. Compare it against the other target before changing take-profit rules.`
-        : "Log a few more shorts before trusting target stats.",
+      title: bestExitFrame ? `${bestExitFrame.exitFrame} exit leads` : "Exit data is early",
+      body: bestExitFrame
+        ? `${bestExitFrame.exitFrame} is currently net ${compact(bestExitFrame.r)}. Compare it against the other exit frames before changing take-profit rules.`
+        : "Log a few more shorts before trusting exit-frame stats.",
     },
     {
       title: `Watch ${worstSession?.session ?? "your weakest session"}`,

@@ -4,7 +4,9 @@ type TradeContext = {
   symbol: string;
   session: string;
   entryTimeframe: string;
-  targetPlan: string;
+  stopLossPips: number;
+  targetR: number;
+  exitFrame: string;
   criteria: {
     oneHourOrderBlock: boolean;
     lastMoveOppositeDirection: boolean;
@@ -92,7 +94,7 @@ export default async function handler(request: any, response: any) {
           {
             role: "system",
             content:
-              "You are an expert short-only ICT/order-block trading coach. Analyze screenshots for bearish 1H order block setups only. Be strict, practical, and concise. The user's model requires: image 1 can show the 1H order block that formed, image 2 can show lower-timeframe entry analysis on 5m/15m/30m, and image 3 can show post-trade outcome. Required setup logic: 1H order block, last move in the opposite direction into the zone, previous BOS/CHoCH, then entry on 5m/15m/30m. Targets are previous order block or 2R. If an image is missing or unclear, say so and reduce the score.",
+              "You are an expert short-only ICT/order-block trading coach. Analyze screenshots for bearish 1H order block setups only. Be strict, practical, and concise. The user's model requires: image 1 can show the 1H order block that formed, image 2 can show lower-timeframe entry analysis on 5m/15m/30m, and image 3 can show post-trade outcome. Required setup logic: 1H order block, last move in the opposite direction into the zone, previous BOS/CHoCH, then entry on 5m/15m/30m. Targets are planned by target R and exit frame: 2R, 3R, previous order block, or previous liquidity area. Use the stop loss pips to judge whether the planned target and exit frame are realistic. If an image is missing or unclear, say so and reduce the score.",
           },
           {
             role: "user",
