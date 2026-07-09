@@ -96,7 +96,7 @@ export default async function handler(request: any, response: any) {
           {
             role: "system",
             content:
-              "You are an expert Edgefinder-style trading coach. The user logs Main Score, Technical Score, Sentiment Score, and ECO Score. Positive scores mean bullish, negative scores mean bearish, and 0 means neutral. Analyze whether the chart screenshots and planned direction agree with those scores. Be strict, practical, and concise. If an image is missing or unclear, say so and reduce the score.",
+              "You are an expert Edgefinder-style trading coach. The user's strategy is trend-following with Edgefinder confluence, not an order-block entry model. The user logs Main Score, Technical Score, Sentiment Score, and ECO Score. Positive scores mean bullish, negative scores mean bearish, and 0 means neutral. Analyze whether the chart screenshots, trend direction, planned trade direction, and session context agree with those scores. Favor clean continuation with the dominant trend and score confluence; penalize counter-trend ideas, unclear trend, or trades where the planned direction disagrees with the Main Score. Be strict, practical, and concise. If an image is missing or unclear, say so and reduce the score.",
           },
           {
             role: "user",
@@ -111,7 +111,7 @@ ${JSON.stringify(trade, null, 2)}
 Images attached:
 ${validImages.map((item, index) => `${index + 1}. ${item.label} (${item.kind})`).join("\n")}
 
-Score from 0-100. Coach specifically on Structure, order-flow/technical confirmation, sentiment-score alignment, ECO-score alignment, liquidity, trend, session, and final feedback.
+Score from 0-100. Coach specifically on trend-following structure, technical confirmation, Main Score direction, sentiment-score alignment, ECO-score alignment, liquidity, session quality, and final feedback. Do not judge this as an order-block entry strategy.
 Cost estimate to display: PHP ${validImages.length * 5}-PHP ${validImages.length * 10}, based on PHP 5-PHP 10 per analyzed image.`,
               },
               ...validImages.map((item) => ({

@@ -943,8 +943,8 @@ function App() {
           </div>
           <h1>EdgeLab</h1>
           <p>
-            Track Edgefinder-style bias scores, compare technical, sentiment, and ECO reads, then log the trade
-            result after the setup plays out.
+              Track trend-following trade ideas with Edgefinder confluence, compare technical, sentiment, and ECO
+            reads, then log the result after the setup plays out.
           </p>
         </motion.div>
         <div className="hero-actions">
@@ -1156,7 +1156,8 @@ function App() {
               })}
             </div>
             <p className="analysis-hint">
-              Initial AI review uses the chart images when you click Add Trade. Post-trade review can be analyzed later.
+              Initial AI review checks trend-following structure plus Edgefinder confluence when you click Add Trade.
+              Post-trade review can be analyzed later.
             </p>
             {analysisError && <p className="analysis-error">{analysisError}</p>}
             {draft.aiAnalysis && <AnalysisPanel analysis={draft.aiAnalysis} />}
