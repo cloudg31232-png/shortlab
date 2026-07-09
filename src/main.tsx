@@ -113,6 +113,7 @@ type Trade = {
   technicalScore: number;
   sentimentScore: number;
   ecoScore: number;
+  macroScorecard: number;
   marketMode: MarketMode;
   stopLossPips: number;
   targetR: number;
@@ -145,6 +146,7 @@ const seedTrades: Trade[] = [
     technicalScore: -2,
     sentimentScore: -1,
     ecoScore: -1,
+    macroScorecard: 7.2,
     marketMode: "Trend-following",
     stopLossPips: 10,
     targetR: 2,
@@ -169,6 +171,7 @@ const seedTrades: Trade[] = [
     technicalScore: 1,
     sentimentScore: -2,
     ecoScore: 0,
+    macroScorecard: 4.8,
     marketMode: "Trend-following",
     stopLossPips: 12,
     targetR: 2,
@@ -193,6 +196,7 @@ const seedTrades: Trade[] = [
     technicalScore: -3,
     sentimentScore: -2,
     ecoScore: -1,
+    macroScorecard: 8.1,
     marketMode: "Trend-following",
     stopLossPips: 15,
     targetR: 3,
@@ -217,6 +221,7 @@ const seedTrades: Trade[] = [
     technicalScore: 1,
     sentimentScore: 1,
     ecoScore: 0,
+    macroScorecard: 6.4,
     marketMode: "Sideways / range",
     stopLossPips: 9,
     targetR: 2,
@@ -242,6 +247,7 @@ const blankTrade: Omit<Trade, "id"> = {
   technicalScore: -1,
   sentimentScore: -1,
   ecoScore: -1,
+  macroScorecard: 1,
   marketMode: "Trend-following",
   stopLossPips: 10,
   targetR: 2,
@@ -571,6 +577,7 @@ async function requestTradeAnalysis(trade: Omit<Trade, "id"> | Trade, images: Tr
           technical: trade.technicalScore,
           sentiment: trade.sentimentScore,
           eco: trade.ecoScore,
+          macroScorecard: trade.macroScorecard,
         },
         marketMode: trade.marketMode,
       },
@@ -627,6 +634,7 @@ function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
       technicalScore: Number(trade.technicalScore ?? (trade.direction === "Long" ? 1 : -1)),
       sentimentScore: Number(trade.sentimentScore ?? 0),
       ecoScore: Number(trade.ecoScore ?? 0),
+      macroScorecard: Number(trade.macroScorecard ?? 0),
       marketMode: trade.marketMode === "Sideways / range" ? "Sideways / range" : "Trend-following",
       stopLossPips: Number(legacyTrade.stopLossPips ?? blankTrade.stopLossPips),
       targetR,
@@ -1203,6 +1211,17 @@ function App() {
                   />
                 </Field>
               ))}
+              <Field label="ChatGPT Macro Scorecard">
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  step="0.1"
+                  value={draft.macroScorecard}
+                  onChange={(event) => updateDraft("macroScorecard", Math.min(10, Math.max(1, Number(event.target.value))))}
+                  placeholder="1.1 / 10"
+                />
+              </Field>
             </div>
             <div className={`setup-read ${draft.mainScore >= 0 ? "complete" : "incomplete"}`}>
               <strong>{scoreBias(draft.mainScore)}</strong>
@@ -1352,6 +1371,7 @@ function App() {
                     <span>
                       Main {trade.mainScore} - Tech {trade.technicalScore} - Sent {trade.sentimentScore} - ECO {trade.ecoScore}
                     </span>
+                    <span>GPT macro {trade.macroScorecard.toFixed(1)}/10</span>
                   </td>
                   <td>
                     <strong>{trade.direction}</strong>
@@ -2057,6 +2077,7 @@ function buildAnalytics(trades: Trade[]) {
     { metric: "Tech", value: Math.round(Math.min(100, Math.abs(average(trades.map((trade) => trade.technicalScore))) * 25)) },
     { metric: "Sentiment", value: Math.round(Math.min(100, Math.abs(average(trades.map((trade) => trade.sentimentScore))) * 25)) },
     { metric: "ECO", value: Math.round(Math.min(100, Math.abs(average(trades.map((trade) => trade.ecoScore))) * 25)) },
+    { metric: "Macro", value: Math.round(average(trades.map((trade) => trade.macroScorecard)) * 10) },
     { metric: "AI Score", value: Math.round(aiScoreAverage) },
     { metric: "Reviewed", value: trades.length ? Math.round((analyzedTrades.length / trades.length) * 100) : 0 },
   ];

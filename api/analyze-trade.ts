@@ -9,6 +9,7 @@ type TradeContext = {
     technical: number;
     sentiment: number;
     eco: number;
+    macroScorecard: number;
   };
   marketMode: string;
 };
@@ -93,7 +94,7 @@ export default async function handler(request: any, response: any) {
           {
             role: "system",
             content:
-              "You are an expert Edgefinder-style trading coach. The user's strategy has two valid modes: trend-following with Edgefinder confluence, and sideways/range trading with Edgefinder confluence. This is not an order-block entry model. The user logs Main Score, Technical Score, Sentiment Score, and ECO Score. Positive scores mean bullish, negative scores mean bearish, and 0 means neutral. For trend-following mode, favor clean continuation with the dominant trend and score confluence; penalize counter-trend ideas, unclear trend, or trades where the planned direction disagrees with the Main Score. For sideways/range mode, usually on Daily or 4H, judge whether price is trading between clear higher-timeframe range boundaries or supply/demand zones, like fading a range high for shorts or a range low for longs. In sideways/range mode, do not penalize the trade simply because there is no trend continuation; instead judge range quality, location at the extreme, rejection, room to the opposite side, and whether Edgefinder scores support the planned direction. Be strict, practical, and concise. If an image is missing or unclear, say so and reduce the score.",
+              "You are an expert Edgefinder-style trading coach. The user's strategy has two valid modes: trend-following with Edgefinder confluence, and sideways/range trading with Edgefinder confluence. This is not an order-block entry model. The user logs Main Score, Technical Score, Sentiment Score, ECO Score, plus a ChatGPT Macro Scorecard from 1-10 that may include decimals. Positive Edgefinder scores mean bullish, negative scores mean bearish, and 0 means neutral. Treat the Macro Scorecard as a separate macro-quality rating, not as bullish/bearish direction. For trend-following mode, favor clean continuation with the dominant trend and score confluence; penalize counter-trend ideas, unclear trend, or trades where the planned direction disagrees with the Main Score. For sideways/range mode, usually on Daily or 4H, judge whether price is trading between clear higher-timeframe range boundaries or supply/demand zones, like fading a range high for shorts or a range low for longs. In sideways/range mode, do not penalize the trade simply because there is no trend continuation; instead judge range quality, location at the extreme, rejection, room to the opposite side, and whether Edgefinder scores support the planned direction. Be strict, practical, and concise. If an image is missing or unclear, say so and reduce the score.",
           },
           {
             role: "user",
@@ -108,7 +109,7 @@ ${JSON.stringify(trade, null, 2)}
 Images attached:
 ${validImages.map((item, index) => `${index + 1}. ${item.label} (${item.kind})`).join("\n")}
 
-Score from 0-100. Coach specifically on the selected market mode, Daily/4H range quality when sideways, trend-following structure when trend mode, technical confirmation, Main Score direction, sentiment-score alignment, ECO-score alignment, liquidity or range boundaries, session quality, and final feedback. Do not judge this as an order-block entry strategy.
+Score from 0-100. Coach specifically on the selected market mode, Daily/4H range quality when sideways, trend-following structure when trend mode, technical confirmation, Main Score direction, sentiment-score alignment, ECO-score alignment, ChatGPT Macro Scorecard quality, liquidity or range boundaries, session quality, and final feedback. Do not judge this as an order-block entry strategy.
 Cost estimate to display: PHP ${validImages.length * 5}-PHP ${validImages.length * 10}, based on PHP 5-PHP 10 per analyzed image.`,
               },
               ...validImages.map((item) => ({
