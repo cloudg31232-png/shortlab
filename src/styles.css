@@ -1462,21 +1462,32 @@ td span {
   background: rgba(255, 255, 255, 0.06);
 }
 
-.duration-editor {
-  width: 110px;
-  min-height: 34px;
-  border: 1px solid rgba(216, 180, 254, 0.18);
-  border-radius: 8px;
-  padding: 0 9px;
-  color: #f7f1ff;
-  font: inherit;
-  font-weight: 800;
-  background: rgba(255, 255, 255, 0.06);
-  outline: none;
+.duration-cell {
+  display: grid;
+  gap: 6px;
+  width: max-content;
+  min-width: 96px;
 }
 
-.duration-editor::placeholder {
-  color: #756b86;
+.duration-cell strong {
+  color: #f7f1ff;
+}
+
+.duration-cell span {
+  margin: 0;
+  color: #a9a0b9;
+  font-size: 0.76rem;
+}
+
+.duration-cell button {
+  min-height: 32px;
+  border: 1px solid rgba(52, 211, 153, 0.28);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #86efac;
+  font-size: 0.78rem;
+  font-weight: 900;
+  background: rgba(52, 211, 153, 0.08);
 }
 
 .result-editor input {

@@ -118,6 +118,7 @@ type Trade = {
   targetR: number;
   resultR: number;
   tradeDuration: string;
+  endedAt?: string;
   outcome: Outcome;
   chartImage?: string;
   chartImageName?: string;
@@ -149,6 +150,7 @@ const seedTrades: Trade[] = [
     targetR: 2,
     resultR: 1.8,
     tradeDuration: "2 days",
+    endedAt: "2026-06-20T17:20:00.000Z",
     outcome: "Win",
     notes: "Bearish Edgefinder read aligned with technical pressure and session flow.",
   },
@@ -172,6 +174,7 @@ const seedTrades: Trade[] = [
     targetR: 2,
     resultR: -1,
     tradeDuration: "1 day",
+    endedAt: "2026-06-22T21:10:00.000Z",
     outcome: "Loss",
     notes: "Bearish main read, but technical confirmation was mixed.",
   },
@@ -195,6 +198,7 @@ const seedTrades: Trade[] = [
     targetR: 3,
     resultR: 2.4,
     tradeDuration: "3 days",
+    endedAt: "2026-06-28T20:45:00.000Z",
     outcome: "Win",
     notes: "Strong bearish score stack with clean execution and target plan.",
   },
@@ -218,6 +222,7 @@ const seedTrades: Trade[] = [
     targetR: 2,
     resultR: -0.4,
     tradeDuration: "4 days",
+    endedAt: "2026-07-02T09:25:00.000Z",
     outcome: "Loss",
     notes: "Bullish read was present, but the trade did not fully follow through.",
   },
@@ -439,6 +444,22 @@ function compact(value: number) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}R`;
 }
 
+function tradeStartDate(trade: Pick<Trade, "date" | "time">) {
+  return new Date(`${trade.date}T${trade.time || "00:00"}`);
+}
+
+function formatTradeDuration(start: Date, end: Date) {
+  const totalMinutes = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 60000));
+  if (totalMinutes < 60) return `${totalMinutes || 1}m`;
+  const weeks = Math.floor(totalMinutes / 10080);
+  const days = Math.floor((totalMinutes % 10080) / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (weeks) return `${weeks}w${days ? ` ${days}d` : ""}`;
+  if (days) return `${days}d${hours ? ` ${hours}h` : ""}`;
+  return `${hours}h${minutes ? ` ${minutes}m` : ""}`;
+}
+
 function timeToMinutes(time: string) {
   const [hour, minute] = time.split(":").map(Number);
   return hour * 60 + minute;
@@ -611,6 +632,7 @@ function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
       targetR,
       resultR,
       tradeDuration: trade.tradeDuration ?? "",
+      endedAt: trade.endedAt,
       outcome: resultR > 0 ? "Win" : resultR < 0 ? "Loss" : "BE",
       tradeImages: migratedImages,
       aiAnalysis: trade.aiAnalysis,
@@ -938,12 +960,22 @@ function App() {
     });
   }
 
-  function updateTradeDuration(id: string, tradeDuration: string) {
+  function endTrade(id: string) {
+    const endedAt = new Date();
     setTrades((current) => {
-      const updated = current.map((trade) => (trade.id === id ? { ...trade, tradeDuration } : trade));
+      const updated = current.map((trade) =>
+        trade.id === id
+          ? {
+              ...trade,
+              endedAt: endedAt.toISOString(),
+              tradeDuration: formatTradeDuration(tradeStartDate(trade), endedAt),
+            }
+          : trade,
+      );
       saveTrades(updated);
       return updated;
     });
+    setNotice({ type: "success", message: "Trade ended and duration calculated." });
   }
 
   function exportJson() {
@@ -1368,19 +1400,16 @@ function App() {
                     )}
                   </td>
                   <td>
-                    <input
-                      className="duration-editor"
-                      defaultValue={trade.tradeDuration}
-                      placeholder="2 days"
-                      onBlur={(event) => {
-                        updateTradeDuration(trade.id, event.target.value);
-                        setNotice({ type: "success", message: "Trade duration successfully updated." });
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") event.currentTarget.blur();
-                      }}
-                      aria-label={`Update duration for ${trade.symbol}`}
-                    />
+                    <div className="duration-cell">
+                      <strong>{trade.tradeDuration || "Open"}</strong>
+                      {trade.endedAt ? (
+                        <span>Ended {new Date(trade.endedAt).toLocaleDateString()}</span>
+                      ) : (
+                        <button type="button" onClick={() => endTrade(trade.id)}>
+                          End trade
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td>
                     <label className={`result-editor ${trade.resultR >= 0 ? "positive" : "negative"}`}>
