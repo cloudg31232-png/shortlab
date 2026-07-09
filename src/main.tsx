@@ -51,6 +51,7 @@ type Outcome = "Win" | "Loss" | "BE";
 type Session = "Asia" | "London" | "New York" | "Overlap";
 type Direction = "Long" | "Short";
 type MarketMode = "Trend-following" | "Sideways / range";
+type WatchStatus = "Observation" | "Waiting for confirmation" | "Being traded";
 type ActiveTab = "dashboard" | "add" | "watchlist" | "archive";
 type AuthMode = "signin" | "signup";
 type AccountProfile = {
@@ -86,6 +87,14 @@ type TradeImage = {
   label: string;
   image: string;
   name: string;
+};
+type WatchItem = {
+  id: string;
+  pair: string;
+  status: WatchStatus;
+  image?: string;
+  imageName?: string;
+  addedAt: string;
 };
 type AiStatus = "idle" | "pending" | "complete" | "error";
 
@@ -244,7 +253,41 @@ const blankTrade: Omit<Trade, "id"> = {
 const storageKey = "edgelab.trades.v2.order-block-shorts";
 const legacyStorageKey = "edgelab.trades.v1";
 const lotSettingsKey = "shortlab.lot-settings.v1";
+const watchlistStorageKey = "edgelab.watchlist.v1";
 const watchPairs = ["AUDJPY", "NZDJPY", "AUDUSD", "EURJPY", "GBPUSD", "EURUSD", "EURAUD"] as const;
+const forexPairs = [
+  "AUDCAD",
+  "AUDCHF",
+  "AUDJPY",
+  "AUDNZD",
+  "AUDUSD",
+  "CADCHF",
+  "CADJPY",
+  "CHFJPY",
+  "EURAUD",
+  "EURCAD",
+  "EURCHF",
+  "EURGBP",
+  "EURJPY",
+  "EURNZD",
+  "EURUSD",
+  "GBPAUD",
+  "GBPCAD",
+  "GBPCHF",
+  "GBPJPY",
+  "GBPNZD",
+  "GBPUSD",
+  "NZDCAD",
+  "NZDCHF",
+  "NZDJPY",
+  "NZDUSD",
+  "USDCAD",
+  "USDCHF",
+  "USDJPY",
+  "XAUUSD",
+  "XAGUSD",
+] as const;
+const watchStatuses: WatchStatus[] = ["Observation", "Waiting for confirmation", "Being traded"];
 const scoreFields = [
   { key: "mainScore", label: "Main Score" },
   { key: "technicalScore", label: "Technical Score" },
@@ -333,6 +376,29 @@ function loadTrades() {
 
 function saveTrades(trades: Trade[]) {
   localStorage.setItem(storageKey, JSON.stringify(trades));
+}
+
+function loadWatchlist(): WatchItem[] {
+  try {
+    const stored = localStorage.getItem(watchlistStorageKey);
+    if (!stored) return [];
+    return (JSON.parse(stored) as Partial<WatchItem>[])
+      .filter((item) => item.pair)
+      .map((item, index) => ({
+        id: item.id ?? `watch-${index}`,
+        pair: String(item.pair).toUpperCase(),
+        status: watchStatuses.includes(item.status as WatchStatus) ? (item.status as WatchStatus) : "Observation",
+        image: item.image,
+        imageName: item.imageName,
+        addedAt: item.addedAt ?? new Date().toISOString(),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function saveWatchlist(items: WatchItem[]) {
+  localStorage.setItem(watchlistStorageKey, JSON.stringify(items));
 }
 
 function loadLotSettings(): LotSettings {
@@ -565,6 +631,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("dashboard");
   const [clock, setClock] = useState(new Date());
   const [lotSettings, setLotSettings] = useState<LotSettings>(loadLotSettings);
+  const [watchlist, setWatchlist] = useState<WatchItem[]>(loadWatchlist);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
   const [notice, setNotice] = useState<{ type: "success"; message: string } | null>(null);
@@ -625,6 +692,57 @@ function App() {
       saveLotSettings(next);
       return next;
     });
+  }
+
+  function addWatchPair(pair: string) {
+    const normalized = pair.trim().toUpperCase();
+    if (!normalized) return;
+    if (watchlist.some((item) => item.pair === normalized)) {
+      setNotice({ type: "success", message: `${normalized} is already on your watchlist.` });
+      return;
+    }
+    const next = [
+      {
+        id: crypto.randomUUID(),
+        pair: normalized,
+        status: "Observation" as const,
+        addedAt: new Date().toISOString(),
+      },
+      ...watchlist,
+    ];
+    setWatchlist(next);
+    saveWatchlist(next);
+    setNotice({ type: "success", message: `${normalized} added to watchlist.` });
+  }
+
+  function updateWatchItem(id: string, patch: Partial<WatchItem>) {
+    setWatchlist((current) => {
+      const updated = current.map((item) => (item.id === id ? { ...item, ...patch } : item));
+      saveWatchlist(updated);
+      return updated;
+    });
+  }
+
+  async function attachWatchImage(id: string, file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Please choose an image file for the watchlist pair.");
+      return;
+    }
+    try {
+      const image = await resizeImage(file);
+      updateWatchItem(id, { image, imageName: file.name });
+      setNotice({ type: "success", message: "Watchlist image added." });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not process watchlist image.");
+    }
+  }
+
+  function deleteWatchItem(id: string) {
+    const next = watchlist.filter((item) => item.id !== id);
+    setWatchlist(next);
+    saveWatchlist(next);
+    setNotice({ type: "success", message: "Pair deleted from watchlist." });
   }
 
   async function attachTradeImage(kind: TradeImageKind, file: File | undefined) {
@@ -1138,10 +1256,31 @@ function App() {
       )}
 
       {activeTab === "watchlist" && (
-        <WatchlistPanel activeWindows={activeWindows} onSelectPair={(pair) => {
-          updateDraft("symbol", pair);
-          setActiveTab("add");
-        }} />
+        <WatchlistPanel
+          activeWindows={activeWindows}
+          onSelectPair={(pair) => {
+            updateDraft("symbol", pair);
+            setActiveTab("add");
+          }}
+          watchlist={watchlist}
+          onAddPair={addWatchPair}
+          onUpdateItem={updateWatchItem}
+          onAttachImage={attachWatchImage}
+          onDeleteItem={deleteWatchItem}
+          onPreviewImage={(item) =>
+            item.image &&
+            setSelectedImage({
+              trade: {
+                ...blankTrade,
+                id: item.id,
+                symbol: item.pair,
+                date: item.addedAt.slice(0, 10),
+                time: item.addedAt.slice(11, 16),
+              },
+              image: { kind: "preTrade", label: `${item.pair} watchlist image`, image: item.image, name: item.imageName ?? item.pair },
+            })
+          }
+        />
       )}
 
       {activeTab === "archive" && (
@@ -1436,14 +1575,32 @@ function AnalysisPanel({ analysis }: { analysis: AiAnalysis }) {
 function WatchlistPanel({
   activeWindows,
   onSelectPair,
+  watchlist = [],
+  onAddPair,
+  onUpdateItem,
+  onAttachImage,
+  onDeleteItem,
+  onPreviewImage,
   compactView = false,
 }: {
   activeWindows: typeof watchWindows;
   onSelectPair: (pair: string) => void;
+  watchlist?: WatchItem[];
+  onAddPair?: (pair: string) => void;
+  onUpdateItem?: (id: string, patch: Partial<WatchItem>) => void;
+  onAttachImage?: (id: string, file: File | undefined) => void;
+  onDeleteItem?: (id: string) => void;
+  onPreviewImage?: (item: WatchItem) => void;
   compactView?: boolean;
 }) {
+  const [query, setQuery] = useState("");
   const activePairs = new Set(activeWindows.map((window) => window.pair));
   const rows = compactView ? watchWindows.slice(0, 4) : watchWindows;
+  const normalizedQuery = query.trim().toUpperCase();
+  const watchedPairs = new Set(watchlist.map((item) => item.pair));
+  const searchResults = normalizedQuery
+    ? forexPairs.filter((pair) => pair.includes(normalizedQuery)).slice(0, 8)
+    : forexPairs.slice(0, 8);
 
   return (
     <section className={`watchlist-panel ${compactView ? "compact" : ""}`}>
@@ -1479,6 +1636,83 @@ function WatchlistPanel({
           );
         })}
       </div>
+      {!compactView && (
+        <div className="watchlist-manager">
+          <div className="watch-search">
+            <Field label="Search forex pair">
+              <input value={query} onChange={(event) => setQuery(event.target.value.toUpperCase())} placeholder="Search GBPNZD, EURUSD, XAUUSD..." />
+            </Field>
+            <div className="watch-search-results">
+              {searchResults.map((pair) => {
+                const isAdded = watchedPairs.has(pair);
+                return (
+                  <motion.button
+                    type="button"
+                    key={pair}
+                    whileHover={{ y: -2 }}
+                    whileTap={{ scale: 0.98 }}
+                    disabled={isAdded}
+                    onClick={() => onAddPair?.(pair)}
+                  >
+                    <span>{pair}</span>
+                    <strong>{isAdded ? "Added" : "Add"}</strong>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="watch-table">
+            <div className="watch-table-head">
+              <span>Pair</span>
+              <span>Status</span>
+              <span>Image</span>
+              <span>Action</span>
+            </div>
+            {watchlist.length ? (
+              watchlist.map((item) => (
+                <motion.div
+                  className="watch-row"
+                  key={item.id}
+                  layout
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                >
+                  <div>
+                    <strong>{item.pair}</strong>
+                    <span>Added {item.addedAt.slice(0, 10)}</span>
+                  </div>
+                  <select value={item.status} onChange={(event) => onUpdateItem?.(item.id, { status: event.target.value as WatchStatus })}>
+                    {watchStatuses.map((status) => (
+                      <option key={status}>{status}</option>
+                    ))}
+                  </select>
+                  <div className="watch-image-cell">
+                    {item.image ? (
+                      <button type="button" onClick={() => onPreviewImage?.(item)}>
+                        <img src={item.image} alt={item.imageName ?? item.pair} />
+                      </button>
+                    ) : (
+                      <span>No image</span>
+                    )}
+                    <label>
+                      <Upload size={14} />
+                      {item.image ? "Replace" : "Add"}
+                      <input type="file" accept="image/*" onChange={(event) => onAttachImage?.(item.id, event.target.files?.[0])} />
+                    </label>
+                  </div>
+                  <button className="delete-button" type="button" title="Delete pair" onClick={() => onDeleteItem?.(item.id)}>
+                    <Trash2 size={16} />
+                  </button>
+                </motion.div>
+              ))
+            ) : (
+              <div className="watch-empty">Search and add pairs to build your watchlist.</div>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
