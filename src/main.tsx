@@ -106,8 +106,6 @@ type Trade = {
   lotSize: number;
   resultR: number;
   outcome: Outcome;
-  entryQuality: number;
-  exitQuality: number;
   chartImage?: string;
   chartImageName?: string;
   tradeImages?: TradeImage[];
@@ -134,8 +132,6 @@ const seedTrades: Trade[] = [
     lotSize: 0.1,
     resultR: 1.8,
     outcome: "Win",
-    entryQuality: 8,
-    exitQuality: 7,
     notes: "Rejected from the 1H bearish order block and sold the lower-timeframe shift.",
   },
   {
@@ -154,8 +150,6 @@ const seedTrades: Trade[] = [
     lotSize: 0.1,
     resultR: -1,
     outcome: "Loss",
-    entryQuality: 4,
-    exitQuality: 5,
     notes: "Short idea was there, but the last move into the block was not clean enough.",
   },
   {
@@ -174,8 +168,6 @@ const seedTrades: Trade[] = [
     lotSize: 0.1,
     resultR: 2.4,
     outcome: "Win",
-    entryQuality: 9,
-    exitQuality: 8,
     notes: "Textbook 1H supply, 15m confirmation, clean target into prior demand.",
   },
   {
@@ -194,8 +186,6 @@ const seedTrades: Trade[] = [
     lotSize: 0.1,
     resultR: -0.4,
     outcome: "Loss",
-    entryQuality: 5,
-    exitQuality: 6,
     notes: "The block held briefly, but structure had not clearly shifted before entry.",
   },
 ];
@@ -215,8 +205,6 @@ const blankTrade: Omit<Trade, "id"> = {
   lotSize: 0.1,
   resultR: 0,
   outcome: "BE",
-  entryQuality: 7,
-  exitQuality: 7,
   tradeImages: [],
   aiAnalysis: undefined,
   aiStatus: "idle",
@@ -492,8 +480,6 @@ function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
       lotSize: Number(trade.lotSize ?? blankTrade.lotSize),
       resultR,
       outcome: resultR > 0 ? "Win" : resultR < 0 ? "Loss" : "BE",
-      entryQuality: Number(trade.entryQuality ?? blankTrade.entryQuality),
-      exitQuality: Number(trade.exitQuality ?? blankTrade.exitQuality),
       tradeImages: migratedImages,
       aiAnalysis: trade.aiAnalysis,
       aiStatus: trade.aiStatus ?? (trade.aiAnalysis ? "complete" : "idle"),
@@ -591,6 +577,48 @@ function App() {
       updateDraft("aiAnalysis", undefined);
     } catch (error) {
       alert(error instanceof Error ? error.message : "Could not process screenshot.");
+    }
+  }
+
+  async function attachPostTradeImage(trade: Trade, file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Please choose an image file for the post-trade screenshot.");
+      return;
+    }
+    try {
+      const image = await resizeImage(file);
+      const slot = imageSlots.find((item) => item.kind === "postTrade");
+      const tradeImages = [
+        ...(trade.tradeImages ?? []).filter((item) => item.kind !== "postTrade"),
+        {
+          kind: "postTrade" as const,
+          label: slot?.label ?? "Post-trade review",
+          image,
+          name: file.name,
+        },
+      ];
+      const pending = trades.map((item) =>
+        item.id === trade.id ? { ...item, tradeImages, aiStatus: "pending" as const, aiError: "" } : item,
+      );
+      setTrades(pending);
+      saveTrades(pending);
+      const updatedTrade = { ...trade, tradeImages, aiStatus: "pending" as const, aiError: "" };
+      const analysis = await requestTradeAnalysis(updatedTrade, tradeImages);
+      setTrades((current) => {
+        const updated = current.map((item) =>
+          item.id === trade.id ? { ...item, aiAnalysis: analysis, aiStatus: "complete" as const, aiError: "" } : item,
+        );
+        saveTrades(updated);
+        return updated;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Post-trade analysis failed.";
+      setTrades((current) => {
+        const updated = current.map((item) => (item.id === trade.id ? { ...item, aiStatus: "error" as const, aiError: message } : item));
+        saveTrades(updated);
+        return updated;
+      });
     }
   }
 
@@ -947,12 +975,6 @@ function App() {
             <Field label="Result">
               <input type="number" step="0.1" value={draft.resultR} onChange={(event) => updateDraft("resultR", Number(event.target.value))} />
             </Field>
-            <Field label="Entry quality">
-              <input type="range" min="1" max="10" value={draft.entryQuality} onChange={(event) => updateDraft("entryQuality", Number(event.target.value))} />
-            </Field>
-            <Field label="Exit quality">
-              <input type="range" min="1" max="10" value={draft.exitQuality} onChange={(event) => updateDraft("exitQuality", Number(event.target.value))} />
-            </Field>
           </div>
           <section className="screenshot-uploader">
             <div className="section-title">
@@ -1101,9 +1123,18 @@ function App() {
                             <span>{image.label}</span>
                           </a>
                         ))}
+                        <label className="archive-post-upload">
+                          <Upload size={14} />
+                          {getTradeImage(trade.tradeImages, "postTrade") ? "Replace post-trade" : "Add post-trade"}
+                          <input type="file" accept="image/*" onChange={(event) => attachPostTradeImage(trade, event.target.files?.[0])} />
+                        </label>
                       </div>
                     ) : (
-                      <span>No image</span>
+                      <label className="archive-post-upload">
+                        <Upload size={14} />
+                        Add post-trade
+                        <input type="file" accept="image/*" onChange={(event) => attachPostTradeImage(trade, event.target.files?.[0])} />
+                      </label>
                     )}
                   </td>
                   <td>
@@ -1558,6 +1589,8 @@ function buildAnalytics(trades: Trade[]) {
   const incompleteTrades = trades.filter((trade) => setupScore(trade) < 3);
   const setupPassRate = trades.length ? aPlusTrades.length / trades.length : 0;
   const criteriaCompletion = average(trades.map((trade) => setupScore(trade) / 3));
+  const analyzedTrades = trades.filter((trade) => trade.aiAnalysis);
+  const aiScoreAverage = average(analyzedTrades.map((trade) => trade.aiAnalysis?.score ?? 0));
   const processScore = Math.round(
     Math.min(
       100,
@@ -1565,8 +1598,8 @@ function buildAnalytics(trades: Trade[]) {
         0,
         average([
           criteriaCompletion * 100,
-          average(trades.map((trade) => trade.entryQuality)) * 10,
-          average(trades.map((trade) => trade.exitQuality)) * 10,
+          analyzedTrades.length ? aiScoreAverage : criteriaCompletion * 100,
+          trades.length ? (analyzedTrades.length / trades.length) * 100 : 0,
           aPlusTrades.length ? Math.max(0, average(aPlusTrades.map((trade) => trade.resultR)) * 20 + 60) : 55,
         ]),
       ),
@@ -1607,8 +1640,8 @@ function buildAnalytics(trades: Trade[]) {
     { metric: "1H OB", value: trades.length ? Math.round((trades.filter((trade) => trade.hasOneHourOrderBlock).length / trades.length) * 100) : 0 },
     { metric: "Opposite", value: trades.length ? Math.round((trades.filter((trade) => trade.hasLastMoveOpposite).length / trades.length) * 100) : 0 },
     { metric: "CHOCH", value: trades.length ? Math.round((trades.filter((trade) => trade.hasPreviousChangeOfStructure).length / trades.length) * 100) : 0 },
-    { metric: "Entry", value: Math.round(average(trades.map((trade) => trade.entryQuality)) * 10) },
-    { metric: "Exit", value: Math.round(average(trades.map((trade) => trade.exitQuality)) * 10) },
+    { metric: "AI Score", value: Math.round(aiScoreAverage) },
+    { metric: "Reviewed", value: trades.length ? Math.round((analyzedTrades.length / trades.length) * 100) : 0 },
   ];
 
   return {

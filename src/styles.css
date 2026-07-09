@@ -1208,6 +1208,27 @@ td span {
   border-radius: 6px;
 }
 
+.archive-post-upload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: fit-content;
+  min-height: 32px;
+  border: 1px solid rgba(216, 180, 254, 0.2);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #d8b4fe;
+  font-size: 0.78rem;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
+.archive-post-upload input {
+  display: none;
+}
+
 .review-score-button {
   min-height: 34px;
   border: 1px solid rgba(52, 211, 153, 0.35);
