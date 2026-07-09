@@ -1294,6 +1294,23 @@ td span {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.duration-editor {
+  width: 110px;
+  min-height: 34px;
+  border: 1px solid rgba(216, 180, 254, 0.18);
+  border-radius: 8px;
+  padding: 0 9px;
+  color: #f7f1ff;
+  font: inherit;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+.duration-editor::placeholder {
+  color: #756b86;
+}
+
 .result-editor input {
   width: 100%;
   border: 0;

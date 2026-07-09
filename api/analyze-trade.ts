@@ -11,10 +11,6 @@ type TradeContext = {
     eco: number;
   };
   marketMode: string;
-  entryTimeframe: string;
-  stopLossPips: number;
-  targetR: number;
-  exitFrame: string;
 };
 type TradeImageInput = {
   kind: string;

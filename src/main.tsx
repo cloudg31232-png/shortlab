@@ -49,8 +49,6 @@ import "./styles.css";
 
 type Outcome = "Win" | "Loss" | "BE";
 type Session = "Asia" | "London" | "New York" | "Overlap";
-type EntryTimeframe = "5m" | "15m" | "30m" | "4H" | "Daily";
-type ExitFrame = "2R" | "3R" | "Previous OB" | "Previous liquidity area";
 type Direction = "Long" | "Short";
 type MarketMode = "Trend-following" | "Sideways / range";
 type ActiveTab = "dashboard" | "add" | "watchlist" | "archive";
@@ -82,7 +80,7 @@ type AiAnalysis = {
   createdAt: string;
   model?: string;
 };
-type TradeImageKind = "oneHourOrderBlock" | "lowerTimeframe" | "postTrade";
+type TradeImageKind = "preTrade" | "postTrade";
 type TradeImage = {
   kind: TradeImageKind;
   label: string;
@@ -107,11 +105,10 @@ type Trade = {
   sentimentScore: number;
   ecoScore: number;
   marketMode: MarketMode;
-  entryTimeframe: EntryTimeframe;
   stopLossPips: number;
   targetR: number;
-  exitFrame: ExitFrame;
   resultR: number;
+  tradeDuration: string;
   outcome: Outcome;
   chartImage?: string;
   chartImageName?: string;
@@ -139,11 +136,10 @@ const seedTrades: Trade[] = [
     sentimentScore: -1,
     ecoScore: -1,
     marketMode: "Trend-following",
-    entryTimeframe: "5m",
     stopLossPips: 10,
     targetR: 2,
-    exitFrame: "Previous OB",
     resultR: 1.8,
+    tradeDuration: "2 days",
     outcome: "Win",
     notes: "Bearish Edgefinder read aligned with technical pressure and session flow.",
   },
@@ -163,11 +159,10 @@ const seedTrades: Trade[] = [
     sentimentScore: -2,
     ecoScore: 0,
     marketMode: "Trend-following",
-    entryTimeframe: "5m",
     stopLossPips: 12,
     targetR: 2,
-    exitFrame: "2R",
     resultR: -1,
+    tradeDuration: "1 day",
     outcome: "Loss",
     notes: "Bearish main read, but technical confirmation was mixed.",
   },
@@ -187,11 +182,10 @@ const seedTrades: Trade[] = [
     sentimentScore: -2,
     ecoScore: -1,
     marketMode: "Trend-following",
-    entryTimeframe: "15m",
     stopLossPips: 15,
     targetR: 3,
-    exitFrame: "Previous OB",
     resultR: 2.4,
+    tradeDuration: "3 days",
     outcome: "Win",
     notes: "Strong bearish score stack with clean execution and target plan.",
   },
@@ -211,11 +205,10 @@ const seedTrades: Trade[] = [
     sentimentScore: 1,
     ecoScore: 0,
     marketMode: "Sideways / range",
-    entryTimeframe: "Daily",
     stopLossPips: 9,
     targetR: 2,
-    exitFrame: "Previous liquidity area",
     resultR: -0.4,
+    tradeDuration: "4 days",
     outcome: "Loss",
     notes: "Bullish read was present, but the trade did not fully follow through.",
   },
@@ -236,11 +229,10 @@ const blankTrade: Omit<Trade, "id"> = {
   sentimentScore: -1,
   ecoScore: -1,
   marketMode: "Trend-following",
-  entryTimeframe: "5m",
   stopLossPips: 10,
   targetR: 2,
-  exitFrame: "2R",
   resultR: 0,
+  tradeDuration: "",
   outcome: "BE",
   tradeImages: [],
   aiAnalysis: undefined,
@@ -260,9 +252,8 @@ const scoreFields = [
   { key: "ecoScore", label: "ECO Score" },
 ] as const;
 const imageSlots: Array<{ kind: TradeImageKind; label: string; help: string }> = [
-  { kind: "oneHourOrderBlock", label: "Higher timeframe chart", help: "The larger market context behind the Edgefinder bias." },
-  { kind: "lowerTimeframe", label: "Entry chart", help: "Execution screenshot for the trade idea." },
-  { kind: "postTrade", label: "Post-trade review", help: "Later screenshot after target, stop, or management." },
+  { kind: "preTrade", label: "Pre-trade analysis", help: "Your full chart analysis before entry. AI reviews this when you add the trade." },
+  { kind: "postTrade", label: "Post-trade review", help: "Later screenshot after result and trade duration are known." },
 ];
 
 const watchWindows = [
@@ -475,13 +466,6 @@ function getTradeImage(images: TradeImage[] | undefined, kind: TradeImageKind) {
   return images?.find((image) => image.kind === kind);
 }
 
-function normalizeExitFrame(value: unknown): ExitFrame {
-  if (value === "3R") return "3R";
-  if (value === "Previous liquidity area") return "Previous liquidity area";
-  if (value === "Previous OB" || value === "Previous order block") return "Previous OB";
-  return "2R";
-}
-
 async function requestTradeAnalysis(trade: Omit<Trade, "id"> | Trade, images: TradeImage[]) {
   const response = await fetch("/api/analyze-trade", {
     method: "POST",
@@ -500,10 +484,6 @@ async function requestTradeAnalysis(trade: Omit<Trade, "id"> | Trade, images: Tr
           eco: trade.ecoScore,
         },
         marketMode: trade.marketMode,
-        entryTimeframe: trade.entryTimeframe,
-        stopLossPips: trade.stopLossPips,
-        targetR: trade.targetR,
-        exitFrame: trade.exitFrame,
       },
       images,
     }),
@@ -515,20 +495,28 @@ async function requestTradeAnalysis(trade: Omit<Trade, "id"> | Trade, images: Tr
   return payload.analysis as AiAnalysis;
 }
 
+function normalizeTradeImage(image: TradeImage): TradeImage {
+  if (image.kind === "postTrade") return image;
+  return {
+    ...image,
+    kind: "preTrade",
+    label: "Pre-trade analysis",
+  };
+}
+
 function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
   return trades.map((trade, index) => {
-    const legacyTrade = trade as Partial<Trade> & { targetPlan?: string; lotSize?: number };
+    const legacyTrade = trade as Partial<Trade> & { targetPlan?: string; lotSize?: number; entryTimeframe?: string; exitFrame?: string };
     const time = trade.time ?? "15:00";
     const resultR = Number(trade.resultR ?? 0);
-    const exitFrame = normalizeExitFrame(legacyTrade.exitFrame ?? legacyTrade.targetPlan);
-    const targetR = Number(legacyTrade.targetR ?? (exitFrame === "3R" ? 3 : 2));
+    const targetR = Number(legacyTrade.targetR ?? blankTrade.targetR);
     const migratedImages =
-      trade.tradeImages ??
+      trade.tradeImages?.map(normalizeTradeImage) ??
       (trade.chartImage
         ? [
             {
-              kind: "lowerTimeframe" as const,
-              label: "Lower timeframe analysis",
+              kind: "preTrade" as const,
+              label: "Pre-trade analysis",
               image: trade.chartImage,
               name: trade.chartImageName || "Trade screenshot",
             },
@@ -551,11 +539,10 @@ function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
       sentimentScore: Number(trade.sentimentScore ?? 0),
       ecoScore: Number(trade.ecoScore ?? 0),
       marketMode: trade.marketMode === "Sideways / range" ? "Sideways / range" : "Trend-following",
-      entryTimeframe: ["5m", "15m", "30m", "4H", "Daily"].includes(String(trade.entryTimeframe)) ? (trade.entryTimeframe as EntryTimeframe) : "5m",
       stopLossPips: Number(legacyTrade.stopLossPips ?? blankTrade.stopLossPips),
       targetR,
-      exitFrame,
       resultR,
+      tradeDuration: trade.tradeDuration ?? "",
       outcome: resultR > 0 ? "Win" : resultR < 0 ? "Loss" : "BE",
       tradeImages: migratedImages,
       aiAnalysis: trade.aiAnalysis,
@@ -769,7 +756,6 @@ function App() {
       account: "Main",
       stopLossPips: Number(draft.stopLossPips),
       targetR: Number(draft.targetR),
-      exitFrame: draft.exitFrame,
       resultR,
       outcome: resultR > 0 ? "Win" : resultR < 0 ? "Loss" : "BE",
       aiStatus: preTradeImages.length ? "pending" : "idle",
@@ -833,6 +819,14 @@ function App() {
             }
           : trade,
       );
+      saveTrades(updated);
+      return updated;
+    });
+  }
+
+  function updateTradeDuration(id: string, tradeDuration: string) {
+    setTrades((current) => {
+      const updated = current.map((trade) => (trade.id === id ? { ...trade, tradeDuration } : trade));
       saveTrades(updated);
       return updated;
     });
@@ -1031,11 +1025,7 @@ function App() {
               <input type="time" value={draft.time} onChange={(event) => updateDraft("time", event.target.value)} />
             </Field>
             <Field label="Symbol">
-              <select value={draft.symbol} onChange={(event) => updateDraft("symbol", event.target.value)}>
-                {watchPairs.map((pair) => (
-                  <option key={pair}>{pair}</option>
-                ))}
-              </select>
+              <input value={draft.symbol} onChange={(event) => updateDraft("symbol", event.target.value.toUpperCase())} placeholder="GBPNZD" />
             </Field>
             <Field label="Direction">
               <select value={draft.direction} onChange={(event) => updateDraft("direction", event.target.value as Direction)}>
@@ -1065,11 +1055,9 @@ function App() {
             <div className="form-grid">
               {scoreFields.map((field) => (
                 <Field label={field.label} key={field.key}>
-                  <input
-                    type="number"
-                    step="1"
+                  <ScoreInput
                     value={draft[field.key]}
-                    onChange={(event) => updateDraft(field.key, Number(event.target.value))}
+                    onCommit={(value) => updateDraft(field.key, value)}
                   />
                 </Field>
               ))}
@@ -1080,47 +1068,6 @@ function App() {
             </div>
           </section>
 
-          <div className="form-grid">
-            <Field label="Entry timeframe">
-              <select value={draft.entryTimeframe} onChange={(event) => updateDraft("entryTimeframe", event.target.value as EntryTimeframe)}>
-                <option>5m</option>
-                <option>15m</option>
-                <option>30m</option>
-                <option>4H</option>
-                <option>Daily</option>
-              </select>
-            </Field>
-            <Field label="Stop loss">
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                value={draft.stopLossPips}
-                onChange={(event) => updateDraft("stopLossPips", Number(event.target.value))}
-              />
-            </Field>
-            <Field label="Target R">
-              <select value={draft.targetR} onChange={(event) => updateDraft("targetR", Number(event.target.value))}>
-                <option value={1}>1R</option>
-                <option value={1.5}>1.5R</option>
-                <option value={2}>2R</option>
-                <option value={3}>3R</option>
-                <option value={4}>4R</option>
-                <option value={5}>5R</option>
-              </select>
-            </Field>
-            <Field label="Exit frame">
-              <select value={draft.exitFrame} onChange={(event) => updateDraft("exitFrame", event.target.value as ExitFrame)}>
-                <option>2R</option>
-                <option>3R</option>
-                <option>Previous OB</option>
-                <option>Previous liquidity area</option>
-              </select>
-            </Field>
-            <Field label="Result">
-              <input type="number" step="0.1" value={draft.resultR} onChange={(event) => updateDraft("resultR", Number(event.target.value))} />
-            </Field>
-          </div>
           <section className="screenshot-uploader">
             <div className="section-title">
               <Image size={18} />
@@ -1187,15 +1134,6 @@ function App() {
             {isAnalyzing ? "Adding + analyzing..." : "Add trade"}
           </button>
         </form>
-        <LotCalculator
-          pair={draft.symbol}
-          stopLossPips={draft.stopLossPips}
-          settings={lotSettings}
-          onChange={updateLotSetting}
-          onProfileChange={updateAccountProfile}
-          onAddProfile={addAccountProfile}
-          onDeleteProfile={deleteAccountProfile}
-        />
       </section>
       )}
 
@@ -1234,10 +1172,10 @@ function App() {
                 <th>Account</th>
                 <th>Market</th>
                 <th>Edgefinder read</th>
-                <th>Direction / Session</th>
-                <th>SL / Target</th>
+                <th>Mode</th>
                 <th>Screenshot</th>
                 <th>AI review</th>
+                <th>Duration</th>
                 <th>Result</th>
                 <th />
               </tr>
@@ -1259,11 +1197,7 @@ function App() {
                   </td>
                   <td>
                     <strong>{trade.direction}</strong>
-                    <span>{trade.marketMode} - {trade.entryTimeframe}</span>
-                  </td>
-                  <td>
-                    <strong>{trade.stopLossPips} pips</strong>
-                    <span>{trade.targetR}R target</span>
+                    <span>{trade.marketMode}</span>
                   </td>
                   <td>
                     {trade.tradeImages?.length ? (
@@ -1306,6 +1240,21 @@ function App() {
                     ) : (
                       <span>Not analyzed</span>
                     )}
+                  </td>
+                  <td>
+                    <input
+                      className="duration-editor"
+                      defaultValue={trade.tradeDuration}
+                      placeholder="2 days"
+                      onBlur={(event) => {
+                        updateTradeDuration(trade.id, event.target.value);
+                        setNotice({ type: "success", message: "Trade duration successfully updated." });
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
+                      aria-label={`Update duration for ${trade.symbol}`}
+                    />
                   </td>
                   <td>
                     <label className={`result-editor ${trade.resultR >= 0 ? "positive" : "negative"}`}>
@@ -1755,6 +1704,43 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+function ScoreInput({ value, onCommit }: { value: number; onCommit: (value: number) => void }) {
+  const [text, setText] = useState(String(value));
+
+  useEffect(() => {
+    setText(String(value));
+  }, [value]);
+
+  function commit(nextText = text) {
+    if (nextText === "" || nextText === "-") {
+      onCommit(0);
+      setText("0");
+      return;
+    }
+    const parsed = Number(nextText);
+    if (Number.isFinite(parsed)) onCommit(parsed);
+  }
+
+  return (
+    <input
+      inputMode="numeric"
+      value={text}
+      onChange={(event) => {
+        const next = event.target.value;
+        if (/^-?\d*$/.test(next)) {
+          setText(next);
+          if (next !== "" && next !== "-") onCommit(Number(next));
+        }
+      }}
+      onBlur={() => commit()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+      }}
+      placeholder="-2"
+    />
+  );
+}
+
 function CriteriaToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
     <label className={`criteria-toggle ${checked ? "checked" : ""}`}>
@@ -1823,14 +1809,9 @@ function buildAnalytics(trades: Trade[]) {
     r: Number(trades.filter((trade) => trade.session === session).reduce((sum, trade) => sum + trade.resultR, 0).toFixed(2)),
   }));
 
-  const exitFrameStats = ["2R", "3R", "Previous OB", "Previous liquidity area"].map((exitFrame) => ({
-    exitFrame,
-    r: Number(trades.filter((trade) => trade.exitFrame === exitFrame).reduce((sum, trade) => sum + trade.resultR, 0).toFixed(2)),
-  }));
-
-  const timeframeStats = ["5m", "15m", "30m", "4H", "Daily"].map((timeframe) => ({
-    timeframe,
-    r: Number(trades.filter((trade) => trade.entryTimeframe === timeframe).reduce((sum, trade) => sum + trade.resultR, 0).toFixed(2)),
+  const modeStats = ["Trend-following", "Sideways / range"].map((marketMode) => ({
+    marketMode,
+    r: Number(trades.filter((trade) => trade.marketMode === marketMode).reduce((sum, trade) => sum + trade.resultR, 0).toFixed(2)),
   }));
 
   const radar = [
@@ -1855,8 +1836,7 @@ function buildAnalytics(trades: Trade[]) {
     equity,
     setupBuckets,
     sessionStats,
-    exitFrameStats,
-    timeframeStats,
+    modeStats,
     radar,
     aPlusR: aPlusTrades.reduce((sum, trade) => sum + trade.resultR, 0),
     incompleteR: incompleteTrades.reduce((sum, trade) => sum + trade.resultR, 0),
@@ -1866,8 +1846,7 @@ function buildAnalytics(trades: Trade[]) {
 function buildCoachNotes(trades: Trade[]) {
   const analytics = buildAnalytics(trades);
   const worstSession = analytics.sessionStats.sort((a, b) => a.r - b.r)[0];
-  const bestExitFrame = analytics.exitFrameStats.sort((a, b) => b.r - a.r)[0];
-  const bestTimeframe = analytics.timeframeStats.sort((a, b) => b.r - a.r)[0];
+  const bestMode = analytics.modeStats.sort((a, b) => b.r - a.r)[0];
 
   return [
     {
@@ -1882,14 +1861,14 @@ function buildCoachNotes(trades: Trade[]) {
           : `Mixed score reads are net ${compact(analytics.incompleteR)}. Consider marking them as observation-only until the sample improves.`,
     },
     {
-      title: bestExitFrame ? `${bestExitFrame.exitFrame} exit leads` : "Exit data is early",
-      body: bestExitFrame
-        ? `${bestExitFrame.exitFrame} is currently net ${compact(bestExitFrame.r)}. Compare it against the other exit frames before changing take-profit rules.`
-        : "Log a few more trades before trusting exit-frame stats.",
+      title: bestMode ? `${bestMode.marketMode} leads` : "Mode data is early",
+      body: bestMode
+        ? `${bestMode.marketMode} is currently net ${compact(bestMode.r)}. Compare trend-following against sideways range trades before changing rules.`
+        : "Log a few more trades before trusting mode stats.",
     },
     {
       title: `Watch ${worstSession?.session ?? "your weakest session"}`,
-      body: `${worstSession?.session ?? "The weakest session"} is currently ${compact(worstSession?.r ?? 0)}. Best lower-timeframe entry so far: ${bestTimeframe?.timeframe ?? "not enough data"}.`,
+      body: `${worstSession?.session ?? "The weakest session"} is currently ${compact(worstSession?.r ?? 0)}. Keep session timing separate from the Edgefinder read.`,
     },
   ];
 }
