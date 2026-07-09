@@ -1282,6 +1282,45 @@ td span {
   background: rgba(52, 211, 153, 0.1);
 }
 
+.result-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 92px;
+  min-height: 34px;
+  border: 1px solid rgba(216, 180, 254, 0.18);
+  border-radius: 8px;
+  padding: 0 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.result-editor input {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 900;
+  background: transparent;
+  outline: none;
+}
+
+.result-editor span {
+  margin: 0;
+  color: inherit;
+  font-weight: 900;
+}
+
+.result-editor.positive {
+  border-color: rgba(52, 211, 153, 0.28);
+  color: #86efac;
+}
+
+.result-editor.negative {
+  border-color: rgba(251, 113, 133, 0.28);
+  color: #fb7185;
+}
+
 .analysis-modal {
   position: fixed;
   inset: 0;

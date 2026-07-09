@@ -760,6 +760,23 @@ function App() {
     setNotice({ type: "success", message: "Trade successfully deleted from archive." });
   }
 
+  function updateTradeResult(id: string, resultR: number) {
+    const outcome: Outcome = resultR > 0 ? "Win" : resultR < 0 ? "Loss" : "BE";
+    setTrades((current) => {
+      const updated = current.map((trade) =>
+        trade.id === id
+          ? {
+              ...trade,
+              resultR,
+              outcome,
+            }
+          : trade,
+      );
+      saveTrades(updated);
+      return updated;
+    });
+  }
+
   function exportJson() {
     const blob = new Blob([JSON.stringify(trades, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1220,7 +1237,25 @@ function App() {
                       <span>Not analyzed</span>
                     )}
                   </td>
-                  <td className={trade.resultR >= 0 ? "positive" : "negative"}>{compact(trade.resultR)}</td>
+                  <td>
+                    <label className={`result-editor ${trade.resultR >= 0 ? "positive" : "negative"}`}>
+                      <input
+                        type="number"
+                        step="0.1"
+                        defaultValue={trade.resultR}
+                        onBlur={(event) => {
+                          const resultR = Number(event.target.value || 0);
+                          updateTradeResult(trade.id, resultR);
+                          setNotice({ type: "success", message: "Trade result successfully updated." });
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") event.currentTarget.blur();
+                        }}
+                        aria-label={`Update result for ${trade.symbol}`}
+                      />
+                      <span>R</span>
+                    </label>
+                  </td>
                   <td>
                     <button className="delete-button" onClick={() => deleteTrade(trade.id)} title="Delete trade">
                       <Trash2 size={16} />
@@ -1234,8 +1269,8 @@ function App() {
       </section>
       )}
       {selectedAnalysis?.aiAnalysis && (
-        <div className="analysis-modal" role="dialog" aria-modal="true">
-          <div className="analysis-modal-card">
+        <div className="analysis-modal" role="dialog" aria-modal="true" onClick={() => setSelectedAnalysis(null)}>
+          <div className="analysis-modal-card" onClick={(event) => event.stopPropagation()}>
             <div className="panel-header">
               <div>
                 <p className="kicker">{selectedAnalysis.symbol} AI review</p>
@@ -1250,8 +1285,8 @@ function App() {
         </div>
       )}
       {selectedImage && (
-        <div className="analysis-modal" role="dialog" aria-modal="true">
-          <div className="image-preview-card">
+        <div className="analysis-modal" role="dialog" aria-modal="true" onClick={() => setSelectedImage(null)}>
+          <div className="image-preview-card" onClick={(event) => event.stopPropagation()}>
             <div className="panel-header">
               <div>
                 <p className="kicker">{selectedImage.trade.symbol} screenshot</p>
@@ -1278,8 +1313,8 @@ function App() {
         </div>
       )}
       {authOpen && (
-        <div className="analysis-modal" role="dialog" aria-modal="true">
-          <div className="auth-card">
+        <div className="analysis-modal" role="dialog" aria-modal="true" onClick={() => setAuthOpen(false)}>
+          <div className="auth-card" onClick={(event) => event.stopPropagation()}>
             <div className="panel-header">
               <div>
                 <p className="kicker">Account</p>
