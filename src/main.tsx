@@ -449,8 +449,10 @@ function isWindowActive(start: string, end: string, date = new Date()) {
   return now >= timeToMinutes(start) && now < timeToMinutes(end);
 }
 
-function stars(rating: number) {
-  return `${rating}/5`;
+function statusClass(status: WatchStatus) {
+  if (status === "Being traded") return "trading";
+  if (status === "Waiting for confirmation") return "waiting";
+  return "observation";
 }
 
 function pipValuePerLot(pair: string, settings: LotSettings) {
@@ -629,7 +631,6 @@ function App() {
   const [selectedSymbol, setSelectedSymbol] = useState("All");
   const [selectedAccount, setSelectedAccount] = useState("All");
   const [activeTab, setActiveTab] = useState<ActiveTab>("dashboard");
-  const [clock, setClock] = useState(new Date());
   const [lotSettings, setLotSettings] = useState<LotSettings>(loadLotSettings);
   const [watchlist, setWatchlist] = useState<WatchItem[]>(loadWatchlist);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -659,12 +660,7 @@ function App() {
   const coach = useMemo(() => buildCoachNotes(filteredTrades), [filteredTrades]);
   const symbols = useMemo(() => ["All", ...Array.from(new Set([...watchPairs, ...trades.map((trade) => trade.symbol)]))], [trades]);
   const accounts = useMemo(() => ["All", ...Array.from(new Set(trades.map((trade) => trade.account)))], [trades]);
-  const activeWindows = useMemo(() => watchWindows.filter((window) => isWindowActive(window.start, window.end, clock)), [clock]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setClock(new Date()), 60000);
-    return () => window.clearInterval(timer);
-  }, []);
+  const tradingWatchCount = watchlist.filter((item) => item.status === "Being traded").length;
 
   useEffect(() => {
     if (!supabase) return;
@@ -1015,7 +1011,7 @@ function App() {
       )}
       <nav className="top-nav">
         <div className="nav-brand">
-          <div className="brand-mark">SL</div>
+          <div className="brand-mark">EL</div>
           <div>
             <strong>EdgeLab</strong>
             <span>Edgefinder Journal</span>
@@ -1033,7 +1029,7 @@ function App() {
           <button className={activeTab === "watchlist" ? "active" : ""} onClick={() => setActiveTab("watchlist")}>
             <CalendarClock size={16} />
             Watchlist
-            {activeWindows.length > 0 && <span className="tab-dot" />}
+            {watchlist.length > 0 && <span className="tab-dot" />}
           </button>
           <button className={activeTab === "archive" ? "active" : ""} onClick={() => setActiveTab("archive")}>
             <TableProperties size={16} />
@@ -1041,15 +1037,14 @@ function App() {
           </button>
         </div>
         <div className="nav-account">
-          <div className={`live-window ${activeWindows.length ? "active" : ""}`}>
+          <div className={`live-window ${tradingWatchCount ? "active" : ""}`}>
             <span />
-            {activeWindows.length ? `${activeWindows.length} session window${activeWindows.length > 1 ? "s" : ""} live` : "No session window"}
+            {tradingWatchCount
+              ? `${tradingWatchCount} being traded`
+              : watchlist.length
+                ? `${watchlist.length} on watchlist`
+                : "No pairs watched"}
           </div>
-          <select value={selectedAccount} onChange={(event) => setSelectedAccount(event.target.value)} title="Account filter">
-            {accounts.map((account) => (
-              <option key={account}>{account}</option>
-            ))}
-          </select>
           <button className="login-button" title="Account options" onClick={() => setAuthOpen(true)}>
             <User size={16} />
             <span>{user?.email ? user.email.split("@")[0] : "Sign in"}</span>
@@ -1112,10 +1107,7 @@ function App() {
                 ))}
               </div>
             </aside>
-            <WatchlistPanel activeWindows={activeWindows} onSelectPair={(pair) => {
-              updateDraft("symbol", pair);
-              setActiveTab("add");
-            }} compactView />
+            <WatchlistPanel watchlist={watchlist} compactView />
           </section>
 
           <ChartsSection analytics={analytics} />
@@ -1257,11 +1249,6 @@ function App() {
 
       {activeTab === "watchlist" && (
         <WatchlistPanel
-          activeWindows={activeWindows}
-          onSelectPair={(pair) => {
-            updateDraft("symbol", pair);
-            setActiveTab("add");
-          }}
           watchlist={watchlist}
           onAddPair={addWatchPair}
           onUpdateItem={updateWatchItem}
@@ -1573,8 +1560,6 @@ function AnalysisPanel({ analysis }: { analysis: AiAnalysis }) {
 }
 
 function WatchlistPanel({
-  activeWindows,
-  onSelectPair,
   watchlist = [],
   onAddPair,
   onUpdateItem,
@@ -1583,8 +1568,6 @@ function WatchlistPanel({
   onPreviewImage,
   compactView = false,
 }: {
-  activeWindows: typeof watchWindows;
-  onSelectPair: (pair: string) => void;
   watchlist?: WatchItem[];
   onAddPair?: (pair: string) => void;
   onUpdateItem?: (id: string, patch: Partial<WatchItem>) => void;
@@ -1594,10 +1577,10 @@ function WatchlistPanel({
   compactView?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const activePairs = new Set(activeWindows.map((window) => window.pair));
-  const rows = compactView ? watchWindows.slice(0, 4) : watchWindows;
   const normalizedQuery = query.trim().toUpperCase();
   const watchedPairs = new Set(watchlist.map((item) => item.pair));
+  const tradingCount = watchlist.filter((item) => item.status === "Being traded").length;
+  const waitingCount = watchlist.filter((item) => item.status === "Waiting for confirmation").length;
   const searchResults = normalizedQuery
     ? forexPairs.filter((pair) => pair.includes(normalizedQuery)).slice(0, 8)
     : forexPairs.slice(0, 8);
@@ -1606,35 +1589,27 @@ function WatchlistPanel({
     <section className={`watchlist-panel ${compactView ? "compact" : ""}`}>
       <div className="panel-header">
         <div>
-          <p className="kicker">Session timing map</p>
-          <h2>Pairs to watch</h2>
+          <p className="kicker">Watchlist tracker</p>
+          <h2>{compactView ? "Watchlist focus" : "Pair watchlist"}</h2>
         </div>
-        <div className={`live-window ${activeWindows.length ? "active" : ""}`}>
+        <div className={`live-window ${tradingCount ? "active" : ""}`}>
           <span />
-          {activeWindows.length ? `${activeWindows.length} live` : "Standby"}
+          {tradingCount ? `${tradingCount} trading` : `${watchlist.length} watched`}
         </div>
       </div>
-      <div className="watchlist-grid">
-        {rows.map((window) => {
-          const isActive = activePairs.has(window.pair);
-          return (
-            <article className={`watch-card ${isActive ? "active" : ""}`} key={window.pair}>
-              <div className="watch-card-top">
-                <div>
-                  <span className="pair-flag">{window.flag}</span>
-                  <h3>{window.pair}</h3>
-                </div>
-                <strong>{stars(window.rating)}</strong>
-              </div>
-              <p className="watch-time">{window.display}</p>
-              {!compactView && <p className="watch-why">{window.why}</p>}
-              <button type="button" onClick={() => onSelectPair(window.pair)}>
-                <Plus size={15} />
-                Prepare trade
-              </button>
-            </article>
-          );
-        })}
+      <div className="watch-summary-grid">
+        <div className="watch-summary-card trading">
+          <span>Being traded</span>
+          <strong>{tradingCount}</strong>
+        </div>
+        <div className="watch-summary-card waiting">
+          <span>Waiting confirmation</span>
+          <strong>{waitingCount}</strong>
+        </div>
+        <div className="watch-summary-card observation">
+          <span>Observation</span>
+          <strong>{watchlist.filter((item) => item.status === "Observation").length}</strong>
+        </div>
       </div>
       {!compactView && (
         <div className="watchlist-manager">
@@ -1672,7 +1647,7 @@ function WatchlistPanel({
             {watchlist.length ? (
               watchlist.map((item) => (
                 <motion.div
-                  className="watch-row"
+                  className={`watch-row ${statusClass(item.status)}`}
                   key={item.id}
                   layout
                   initial={{ opacity: 0, y: 12 }}
