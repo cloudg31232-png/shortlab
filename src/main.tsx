@@ -521,6 +521,7 @@ function App() {
   const [analysisError, setAnalysisError] = useState("");
   const [notice, setNotice] = useState<{ type: "success"; message: string } | null>(null);
   const [selectedAnalysis, setSelectedAnalysis] = useState<Trade | null>(null);
+  const [selectedImage, setSelectedImage] = useState<{ trade: Trade; image: TradeImage } | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("signin");
   const [authEmail, setAuthEmail] = useState("");
@@ -1181,10 +1182,16 @@ function App() {
                     {trade.tradeImages?.length ? (
                       <div className="archive-shots">
                         {trade.tradeImages.map((image) => (
-                          <a className="archive-shot" href={image.image} target="_blank" rel="noreferrer" title={image.name} key={image.kind}>
+                          <button
+                            className="archive-shot"
+                            type="button"
+                            title={image.name}
+                            key={image.kind}
+                            onClick={() => setSelectedImage({ trade, image })}
+                          >
                             <img src={image.image} alt={image.name} />
                             <span>{image.label}</span>
-                          </a>
+                          </button>
                         ))}
                         <label className="archive-post-upload">
                           <Upload size={14} />
@@ -1239,6 +1246,23 @@ function App() {
               </button>
             </div>
             <AnalysisPanel analysis={selectedAnalysis.aiAnalysis} />
+          </div>
+        </div>
+      )}
+      {selectedImage && (
+        <div className="analysis-modal" role="dialog" aria-modal="true">
+          <div className="image-preview-card">
+            <div className="panel-header">
+              <div>
+                <p className="kicker">{selectedImage.trade.symbol} screenshot</p>
+                <h2>{selectedImage.image.label}</h2>
+              </div>
+              <button className="delete-button" onClick={() => setSelectedImage(null)} title="Close screenshot preview">
+                <X size={16} />
+              </button>
+            </div>
+            <img src={selectedImage.image.image} alt={selectedImage.image.name} />
+            <p>{selectedImage.image.name}</p>
           </div>
         </div>
       )}

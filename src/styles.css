@@ -1229,8 +1229,18 @@ td span {
   grid-template-columns: 48px auto;
   align-items: center;
   gap: 8px;
+  border: 0;
+  padding: 0;
   color: #d8b4fe;
+  font: inherit;
   text-decoration: none;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.archive-shot:hover span {
+  color: #f5d0fe;
 }
 
 .archive-shot img {
@@ -1294,6 +1304,36 @@ td span {
     linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.045)),
     rgba(12, 7, 22, 0.96);
   box-shadow: 0 24px 90px rgba(0, 0, 0, 0.45);
+}
+
+.image-preview-card {
+  width: min(1100px, 100%);
+  max-height: min(90vh, 900px);
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 20px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.045)),
+    rgba(12, 7, 22, 0.96);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.45);
+}
+
+.image-preview-card > img {
+  display: block;
+  width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+  border: 1px solid rgba(216, 180, 254, 0.14);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.image-preview-card > p {
+  margin: 12px 0 0;
+  color: #a9a0b9;
+  font-size: 0.9rem;
+  word-break: break-word;
 }
 
 .submit-loading-overlay {
