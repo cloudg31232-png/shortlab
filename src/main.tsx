@@ -519,6 +519,7 @@ function App() {
   const [lotSettings, setLotSettings] = useState<LotSettings>(loadLotSettings);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
+  const [notice, setNotice] = useState<{ type: "success"; message: string } | null>(null);
   const [selectedAnalysis, setSelectedAnalysis] = useState<Trade | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("signin");
@@ -558,6 +559,12 @@ function App() {
     });
     return () => data.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 3600);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   function updateDraft<K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -684,6 +691,10 @@ function App() {
 
   async function addTrade(event: React.FormEvent) {
     event.preventDefault();
+    if (isAnalyzing) return;
+    setIsAnalyzing(true);
+    setAnalysisError("");
+    setNotice(null);
     const resultR = Number(draft.resultR);
     const tradeId = crypto.randomUUID();
     const preTradeImages = (draft.tradeImages ?? []).filter((image) => image.kind !== "postTrade");
@@ -696,6 +707,7 @@ function App() {
       account: "Main",
       stopLossPips: Number(draft.stopLossPips),
       targetR: Number(draft.targetR),
+      exitFrame: draft.exitFrame,
       resultR,
       outcome: resultR > 0 ? "Win" : resultR < 0 ? "Loss" : "BE",
       aiStatus: preTradeImages.length ? "pending" : "idle",
@@ -709,9 +721,13 @@ function App() {
       symbol: draft.symbol.trim().toUpperCase() || "EURUSD",
       account: draft.account.trim() || "Main",
     });
-    if (!preTradeImages.length) return;
-    setIsAnalyzing(true);
-    setAnalysisError("");
+    if (!preTradeImages.length) {
+      window.setTimeout(() => {
+        setIsAnalyzing(false);
+        setNotice({ type: "success", message: "Short successfully added." });
+      }, 450);
+      return;
+    }
     try {
       const analysis = await requestTradeAnalysis(nextTrade, preTradeImages);
       setTrades((current) => {
@@ -721,6 +737,7 @@ function App() {
         saveTrades(updated);
         return updated;
       });
+      setNotice({ type: "success", message: "Short successfully added and AI review completed." });
     } catch (error) {
       const message = error instanceof Error ? error.message : "AI analysis failed.";
       setAnalysisError(message);
@@ -729,6 +746,7 @@ function App() {
         saveTrades(updated);
         return updated;
       });
+      setNotice({ type: "success", message: "Short successfully added. AI review needs attention." });
     } finally {
       setIsAnalyzing(false);
     }
@@ -738,6 +756,7 @@ function App() {
     const nextTrades = trades.filter((trade) => trade.id !== id);
     setTrades(nextTrades);
     saveTrades(nextTrades);
+    setNotice({ type: "success", message: "Trade successfully deleted from archive." });
   }
 
   function exportJson() {
@@ -797,6 +816,12 @@ function App() {
     <main className="app-shell">
       <div className="aurora aurora-one" />
       <div className="aurora aurora-two" />
+      {notice && (
+        <div className={`app-notice ${notice.type}`} role="status">
+          <Check size={16} />
+          <span>{notice.message}</span>
+        </div>
+      )}
       <nav className="top-nav">
         <div className="nav-brand">
           <div className="brand-mark">SL</div>
@@ -1071,7 +1096,7 @@ function App() {
           <Field label="Notes">
             <textarea value={draft.notes} onChange={(event) => updateDraft("notes", event.target.value)} rows={4} />
           </Field>
-          <button className="submit-button">
+          <button className="submit-button" disabled={isAnalyzing}>
             <Plus size={18} />
             {isAnalyzing ? "Adding + analyzing..." : "Add short"}
           </button>
@@ -1214,6 +1239,17 @@ function App() {
               </button>
             </div>
             <AnalysisPanel analysis={selectedAnalysis.aiAnalysis} />
+          </div>
+        </div>
+      )}
+      {isAnalyzing && (
+        <div className="submit-loading-overlay" role="alert" aria-live="assertive">
+          <div className="submit-loading-card">
+            <div className="loading-ring">
+              <Sparkles size={24} />
+            </div>
+            <strong>Adding your short</strong>
+            <p>Please keep this page open while ShortLab saves the trade and completes the AI review.</p>
           </div>
         </div>
       )}

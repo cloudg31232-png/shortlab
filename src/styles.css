@@ -289,6 +289,11 @@ h1 {
     background 180ms ease;
 }
 
+.submit-button:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+
 .icon-button:hover,
 .submit-button:hover,
 .round-action:hover,
@@ -306,6 +311,34 @@ h1 {
 
 .ghost input {
   display: none;
+}
+
+.app-notice {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, calc(100vw - 32px));
+  border: 1px solid rgba(52, 211, 153, 0.34);
+  border-radius: 8px;
+  padding: 12px 16px;
+  color: #dcfce7;
+  background:
+    linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(14, 165, 233, 0.12)),
+    rgba(10, 18, 18, 0.92);
+  box-shadow:
+    0 18px 50px rgba(34, 197, 94, 0.18),
+    0 0 34px rgba(52, 211, 153, 0.2);
+  backdrop-filter: blur(18px);
+  transform: translateX(-50%);
+}
+
+.app-notice span {
+  font-size: 0.92rem;
+  font-weight: 800;
 }
 
 .metrics-grid,
@@ -1261,6 +1294,75 @@ td span {
     linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.045)),
     rgba(12, 7, 22, 0.96);
   box-shadow: 0 24px 90px rgba(0, 0, 0, 0.45);
+}
+
+.submit-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background:
+    radial-gradient(circle at center, rgba(124, 58, 237, 0.18), transparent 36%),
+    rgba(5, 2, 10, 0.76);
+  backdrop-filter: blur(12px);
+}
+
+.submit-loading-card {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  width: min(420px, 100%);
+  border: 1px solid rgba(216, 180, 254, 0.22);
+  border-radius: 8px;
+  padding: 28px;
+  text-align: center;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.045)),
+    rgba(12, 7, 22, 0.96);
+  box-shadow:
+    0 28px 90px rgba(0, 0, 0, 0.5),
+    0 0 44px rgba(192, 132, 252, 0.18);
+}
+
+.submit-loading-card strong {
+  color: #fff;
+  font-size: 1.2rem;
+}
+
+.submit-loading-card p {
+  margin: 0;
+  color: #cfc6dc;
+  line-height: 1.6;
+}
+
+.loading-ring {
+  position: relative;
+  display: grid;
+  width: 68px;
+  height: 68px;
+  place-items: center;
+  border-radius: 999px;
+  color: #f5d0fe;
+  background: rgba(192, 132, 252, 0.14);
+  box-shadow: 0 0 34px rgba(192, 132, 252, 0.28);
+}
+
+.loading-ring::before {
+  position: absolute;
+  inset: -4px;
+  border: 2px solid rgba(216, 180, 254, 0.18);
+  border-top-color: #c084fc;
+  border-radius: inherit;
+  animation: spin 900ms linear infinite;
+  content: "";
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .auth-card {
