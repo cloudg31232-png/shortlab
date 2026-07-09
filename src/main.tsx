@@ -97,6 +97,11 @@ type WatchItem = {
   addedAt: string;
 };
 type AiStatus = "idle" | "pending" | "complete" | "error";
+type CloudJournal = {
+  trades: Partial<Trade>[] | null;
+  watchlist: Partial<WatchItem>[] | null;
+  updated_at?: string;
+};
 
 type Trade = {
   id: string;
@@ -379,9 +384,9 @@ const watchWindows = [
 function loadTrades() {
   try {
     const stored = localStorage.getItem(storageKey) ?? localStorage.getItem(legacyStorageKey);
-    return stored ? normalizeTrades(JSON.parse(stored) as Partial<Trade>[]) : seedTrades;
+    return stored ? normalizeTrades(JSON.parse(stored) as Partial<Trade>[]).filter((trade) => !trade.id.startsWith("seed-")) : [];
   } catch {
-    return seedTrades;
+    return [];
   }
 }
 
@@ -389,20 +394,24 @@ function saveTrades(trades: Trade[]) {
   localStorage.setItem(storageKey, JSON.stringify(trades));
 }
 
+function normalizeWatchlist(items: Partial<WatchItem>[]): WatchItem[] {
+  return items
+    .filter((item) => item.pair)
+    .map((item, index) => ({
+      id: item.id ?? `watch-${index}`,
+      pair: String(item.pair).toUpperCase(),
+      status: watchStatuses.includes(item.status as WatchStatus) ? (item.status as WatchStatus) : "Observation",
+      image: item.image,
+      imageName: item.imageName,
+      addedAt: item.addedAt ?? new Date().toISOString(),
+    }));
+}
+
 function loadWatchlist(): WatchItem[] {
   try {
     const stored = localStorage.getItem(watchlistStorageKey);
     if (!stored) return [];
-    return (JSON.parse(stored) as Partial<WatchItem>[])
-      .filter((item) => item.pair)
-      .map((item, index) => ({
-        id: item.id ?? `watch-${index}`,
-        pair: String(item.pair).toUpperCase(),
-        status: watchStatuses.includes(item.status as WatchStatus) ? (item.status as WatchStatus) : "Observation",
-        image: item.image,
-        imageName: item.imageName,
-        addedAt: item.addedAt ?? new Date().toISOString(),
-      }));
+    return normalizeWatchlist(JSON.parse(stored) as Partial<WatchItem>[]);
   } catch {
     return [];
   }
@@ -410,6 +419,29 @@ function loadWatchlist(): WatchItem[] {
 
 function saveWatchlist(items: WatchItem[]) {
   localStorage.setItem(watchlistStorageKey, JSON.stringify(items));
+}
+
+async function loadCloudJournal(userId: string) {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("edgelab_user_data")
+    .select("trades, watchlist, updated_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as CloudJournal | null;
+}
+
+async function saveCloudJournal(user: SupabaseUser, trades: Trade[], watchlist: WatchItem[]) {
+  if (!supabase) return;
+  const { error } = await supabase.from("edgelab_user_data").upsert({
+    user_id: user.id,
+    email: user.email,
+    trades,
+    watchlist,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) throw error;
 }
 
 function loadLotSettings(): LotSettings {
@@ -675,6 +707,8 @@ function App() {
   const [authMessage, setAuthMessage] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [cloudReady, setCloudReady] = useState(false);
+  const [cloudError, setCloudError] = useState("");
 
   const filteredTrades = useMemo(
     () =>
@@ -697,10 +731,59 @@ function App() {
     supabase.auth.getUser().then(({ data }) => setUser(data.user ?? null));
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      setCloudReady(false);
       if (session?.user) setAuthOpen(false);
     });
     return () => data.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setCloudReady(false);
+      return;
+    }
+    const activeUser = user;
+    let cancelled = false;
+    async function syncAccount() {
+      setCloudError("");
+      try {
+        const cloud = await loadCloudJournal(activeUser.id);
+        if (cancelled) return;
+        if (cloud) {
+          const cloudTrades = normalizeTrades(cloud.trades ?? []).filter((trade) => !trade.id.startsWith("seed-"));
+          const cloudWatchlist = normalizeWatchlist(cloud.watchlist ?? []);
+          setTrades(cloudTrades);
+          setWatchlist(cloudWatchlist);
+          saveTrades(cloudTrades);
+          saveWatchlist(cloudWatchlist);
+          setNotice({ type: "success", message: "Account journal loaded from cloud." });
+        } else if (trades.length || watchlist.length) {
+          await saveCloudJournal(activeUser, trades, watchlist);
+          if (!cancelled) setNotice({ type: "success", message: "Local journal saved to your account." });
+        }
+        if (!cancelled) setCloudReady(true);
+      } catch (error) {
+        if (!cancelled) {
+          setCloudError(error instanceof Error ? error.message : "Cloud sync failed.");
+          setCloudReady(false);
+        }
+      }
+    }
+    syncAccount();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !cloudReady) return;
+    const timer = window.setTimeout(() => {
+      saveCloudJournal(user, trades, watchlist).catch((error) => {
+        setCloudError(error instanceof Error ? error.message : "Cloud sync failed.");
+      });
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [user, cloudReady, trades, watchlist]);
 
   useEffect(() => {
     if (!notice) return;
@@ -1037,6 +1120,8 @@ function App() {
     if (!supabase) return;
     await supabase.auth.signOut();
     setUser(null);
+    setCloudReady(false);
+    setCloudError("");
   }
 
   return (
@@ -1522,6 +1607,10 @@ function App() {
               <div className="auth-signed-in">
                 <User size={28} />
                 <strong>{user.email}</strong>
+                <p className={cloudReady ? "sync-ready" : "auth-message"}>
+                  {cloudReady ? "Cloud sync active." : cloudError ? "Cloud sync needs setup." : "Preparing cloud sync..."}
+                </p>
+                {cloudError && <p className="analysis-error">{cloudError}</p>}
                 <button type="button" onClick={signOut}>
                   Sign out
                 </button>
