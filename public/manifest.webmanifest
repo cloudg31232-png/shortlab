@@ -1,0 +1,17 @@
+{
+  "name": "EdgeLab",
+  "short_name": "EdgeLab",
+  "description": "Edgefinder confluence trade journal and watchlist.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0719",
+  "theme_color": "#12071f",
+  "icons": [
+    {
+      "src": "/edgelab-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
