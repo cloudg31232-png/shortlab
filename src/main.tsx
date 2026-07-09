@@ -88,6 +88,7 @@ type TradeImage = {
   image: string;
   name: string;
 };
+type AiStatus = "idle" | "pending" | "complete" | "error";
 
 type Trade = {
   id: string;
@@ -111,6 +112,8 @@ type Trade = {
   chartImageName?: string;
   tradeImages?: TradeImage[];
   aiAnalysis?: AiAnalysis;
+  aiStatus?: AiStatus;
+  aiError?: string;
   notes: string;
 };
 
@@ -216,6 +219,8 @@ const blankTrade: Omit<Trade, "id"> = {
   exitQuality: 7,
   tradeImages: [],
   aiAnalysis: undefined,
+  aiStatus: "idle",
+  aiError: "",
   notes: "",
 };
 
@@ -425,6 +430,34 @@ function getTradeImage(images: TradeImage[] | undefined, kind: TradeImageKind) {
   return images?.find((image) => image.kind === kind);
 }
 
+async function requestTradeAnalysis(trade: Omit<Trade, "id"> | Trade, images: TradeImage[]) {
+  const response = await fetch("/api/analyze-trade", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      trade: {
+        date: trade.date,
+        time: trade.time,
+        symbol: trade.symbol,
+        session: detectSession(trade.time),
+        entryTimeframe: trade.entryTimeframe,
+        targetPlan: trade.targetPlan,
+        criteria: {
+          oneHourOrderBlock: trade.hasOneHourOrderBlock,
+          lastMoveOppositeDirection: trade.hasLastMoveOpposite,
+          previousChangeOfStructure: trade.hasPreviousChangeOfStructure,
+        },
+      },
+      images,
+    }),
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error ?? "AI analysis failed.");
+  }
+  return payload.analysis as AiAnalysis;
+}
+
 function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
   return trades.map((trade, index) => {
     const time = trade.time ?? "15:00";
@@ -463,6 +496,8 @@ function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
       exitQuality: Number(trade.exitQuality ?? blankTrade.exitQuality),
       tradeImages: migratedImages,
       aiAnalysis: trade.aiAnalysis,
+      aiStatus: trade.aiStatus ?? (trade.aiAnalysis ? "complete" : "idle"),
+      aiError: trade.aiError ?? "",
       notes: trade.notes ?? "",
     };
   });
@@ -559,47 +594,6 @@ function App() {
     }
   }
 
-  async function analyzeDraftTrade() {
-    const attachedImages = draft.tradeImages ?? [];
-    if (!attachedImages.length) {
-      alert("Attach at least one screenshot first so the trade review has chart context.");
-      return;
-    }
-    setIsAnalyzing(true);
-    setAnalysisError("");
-    try {
-      const response = await fetch("/api/analyze-trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          trade: {
-            date: draft.date,
-            time: draft.time,
-            symbol: draft.symbol,
-            session: detectSession(draft.time),
-            entryTimeframe: draft.entryTimeframe,
-            targetPlan: draft.targetPlan,
-            criteria: {
-              oneHourOrderBlock: draft.hasOneHourOrderBlock,
-              lastMoveOppositeDirection: draft.hasLastMoveOpposite,
-              previousChangeOfStructure: draft.hasPreviousChangeOfStructure,
-            },
-          },
-          images: attachedImages,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error ?? "AI analysis failed.");
-      }
-      updateDraft("aiAnalysis", payload.analysis as AiAnalysis);
-    } catch (error) {
-      setAnalysisError(error instanceof Error ? error.message : "AI analysis failed.");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  }
-
   function updateAccountProfile(id: string, patch: Partial<AccountProfile>) {
     setLotSettings((current) => {
       const next = {
@@ -644,12 +638,14 @@ function App() {
     });
   }
 
-  function addTrade(event: React.FormEvent) {
+  async function addTrade(event: React.FormEvent) {
     event.preventDefault();
     const resultR = Number(draft.resultR);
+    const tradeId = crypto.randomUUID();
+    const preTradeImages = (draft.tradeImages ?? []).filter((image) => image.kind !== "postTrade");
     const nextTrade: Trade = {
       ...draft,
-      id: crypto.randomUUID(),
+      id: tradeId,
       direction: "Short",
       session: detectSession(draft.time),
       symbol: draft.symbol.trim().toUpperCase(),
@@ -657,6 +653,8 @@ function App() {
       lotSize: Number(draft.lotSize),
       resultR,
       outcome: resultR > 0 ? "Win" : resultR < 0 ? "Loss" : "BE",
+      aiStatus: preTradeImages.length ? "pending" : "idle",
+      aiError: "",
     };
     const nextTrades = [nextTrade, ...trades];
     setTrades(nextTrades);
@@ -666,6 +664,29 @@ function App() {
       symbol: draft.symbol.trim().toUpperCase() || "EURUSD",
       account: draft.account.trim() || "Main",
     });
+    if (!preTradeImages.length) return;
+    setIsAnalyzing(true);
+    setAnalysisError("");
+    try {
+      const analysis = await requestTradeAnalysis(nextTrade, preTradeImages);
+      setTrades((current) => {
+        const updated = current.map((trade) =>
+          trade.id === tradeId ? { ...trade, aiAnalysis: analysis, aiStatus: "complete" as const, aiError: "" } : trade,
+        );
+        saveTrades(updated);
+        return updated;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI analysis failed.";
+      setAnalysisError(message);
+      setTrades((current) => {
+        const updated = current.map((trade) => (trade.id === tradeId ? { ...trade, aiStatus: "error" as const, aiError: message } : trade));
+        saveTrades(updated);
+        return updated;
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
   }
 
   function deleteTrade(id: string) {
@@ -938,7 +959,7 @@ function App() {
               <Image size={18} />
               <div>
                 <h3>Trade images</h3>
-                <p>Add pre-trade, lower-timeframe, and post-trade screenshots for AI review.</p>
+                <p>Pre-trade images analyze when you add the trade. Post-trade stays pending for later review.</p>
               </div>
             </div>
             <div className="trade-image-grid">
@@ -984,10 +1005,9 @@ function App() {
                 );
               })}
             </div>
-            <button className="analyze-button" type="button" onClick={analyzeDraftTrade} disabled={isAnalyzing || !(draft.tradeImages ?? []).length}>
-              <Brain size={16} />
-              {isAnalyzing ? "Analyzing images..." : `Analyze ${(draft.tradeImages ?? []).length || ""} image${(draft.tradeImages ?? []).length === 1 ? "" : "s"}`}
-            </button>
+            <p className="analysis-hint">
+              Initial AI review uses 1H order block + lower-timeframe images when you click Add short. Post-trade review can be analyzed later.
+            </p>
             {analysisError && <p className="analysis-error">{analysisError}</p>}
             {draft.aiAnalysis && <AnalysisPanel analysis={draft.aiAnalysis} />}
           </section>
@@ -996,7 +1016,7 @@ function App() {
           </Field>
           <button className="submit-button">
             <Plus size={18} />
-            Add short
+            {isAnalyzing ? "Adding + analyzing..." : "Add short"}
           </button>
         </form>
         <LotCalculator
@@ -1091,6 +1111,10 @@ function App() {
                       <button className="review-score-button" onClick={() => setSelectedAnalysis(trade)}>
                         {trade.aiAnalysis.score}/100
                       </button>
+                    ) : trade.aiStatus === "pending" ? (
+                      <span>Pending</span>
+                    ) : trade.aiStatus === "error" ? (
+                      <span title={trade.aiError}>AI error</span>
                     ) : (
                       <span>Not analyzed</span>
                     )}

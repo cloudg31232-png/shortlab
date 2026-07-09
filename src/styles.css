@@ -563,8 +563,7 @@ td span,
 
 .screenshot-drop,
 .screenshot-actions label,
-.screenshot-actions button,
-.analyze-button {
+.screenshot-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -676,15 +675,6 @@ td span,
   color: #fb7185;
 }
 
-.analyze-button {
-  width: 100%;
-  min-height: 42px;
-  margin-top: 12px;
-  border-color: rgba(52, 211, 153, 0.34);
-  color: #ecfdf5;
-  background: rgba(52, 211, 153, 0.12);
-}
-
 .analysis-panel {
   display: grid;
   gap: 12px;
@@ -750,6 +740,13 @@ td span,
 .analysis-error {
   margin: 12px 0 0;
   color: #fb7185;
+}
+
+.analysis-hint {
+  margin: 12px 0 0;
+  color: #a9a0b9;
+  font-size: 0.84rem;
+  line-height: 1.5;
 }
 
 .field {
