@@ -221,6 +221,57 @@ label.icon-button {
   box-shadow: 0 0 14px rgba(52, 211, 153, 0.8);
 }
 
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #a9a0b9;
+  font-size: 0.78rem;
+  font-weight: 900;
+  background: rgba(255, 255, 255, 0.055);
+  white-space: nowrap;
+}
+
+.sync-pill span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #a9a0b9;
+}
+
+.sync-pill.ready {
+  border-color: rgba(52, 211, 153, 0.26);
+  color: #86efac;
+}
+
+.sync-pill.ready span {
+  background: #34d399;
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.8);
+}
+
+.sync-pill.syncing {
+  color: #fde68a;
+}
+
+.sync-pill.syncing span {
+  background: #facc15;
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.65);
+}
+
+.sync-pill.error {
+  border-color: rgba(251, 113, 133, 0.28);
+  color: #fb7185;
+}
+
+.sync-pill.error span {
+  background: #fb7185;
+  box-shadow: 0 0 12px rgba(251, 113, 133, 0.72);
+}
+
 .login-button {
   justify-content: center;
   gap: 8px;

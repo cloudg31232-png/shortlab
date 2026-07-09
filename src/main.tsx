@@ -762,10 +762,8 @@ function App() {
           setWatchlist(cloudWatchlist);
           saveTrades(cloudTrades);
           saveWatchlist(cloudWatchlist);
-          setNotice({ type: "success", message: "Account journal loaded from cloud." });
         } else if (trades.length || watchlist.length) {
           await saveCloudJournal(activeUser, trades, watchlist);
-          if (!cancelled) setNotice({ type: "success", message: "Local journal saved to your account." });
         }
         if (!cancelled) setCloudReady(true);
       } catch (error) {
@@ -1175,6 +1173,10 @@ function App() {
               : watchlist.length
                 ? `${watchlist.length} on watchlist`
                 : "No pairs watched"}
+          </div>
+          <div className={`sync-pill ${cloudError ? "error" : cloudReady ? "ready" : user ? "syncing" : ""}`} title={cloudError || "Account sync status"}>
+            <span />
+            {cloudError ? "Sync issue" : cloudReady ? "Synced" : user ? "Syncing" : "Local"}
           </div>
           <button className="login-button" title="Account options" onClick={() => setAuthOpen(true)}>
             <User size={16} />
