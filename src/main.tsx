@@ -482,6 +482,12 @@ function compact(value: number) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}R`;
 }
 
+function conciseText(text: string, maxWords = 18) {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return text;
+  return `${words.slice(0, maxWords).join(" ")}...`;
+}
+
 function tradeStartDate(trade: Pick<Trade, "date" | "time">) {
   return new Date(`${trade.date}T${trade.time || "00:00"}`);
 }
@@ -1685,13 +1691,13 @@ function AnalysisPanel({ analysis }: { analysis: AiAnalysis }) {
         {items.map(([label, body]) => (
           <div key={label}>
             <span>{label}</span>
-            <p>{body}</p>
+            <p>{conciseText(body, 16)}</p>
           </div>
         ))}
       </div>
       <div className="analysis-feedback">
         <strong>Coaching feedback</strong>
-        <p>{analysis.feedback}</p>
+        <p>{conciseText(analysis.feedback, 42)}</p>
       </div>
     </div>
   );
