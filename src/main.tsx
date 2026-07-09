@@ -49,9 +49,10 @@ import "./styles.css";
 
 type Outcome = "Win" | "Loss" | "BE";
 type Session = "Asia" | "London" | "New York" | "Overlap";
-type EntryTimeframe = "5m" | "15m" | "30m";
+type EntryTimeframe = "5m" | "15m" | "30m" | "4H" | "Daily";
 type ExitFrame = "2R" | "3R" | "Previous OB" | "Previous liquidity area";
 type Direction = "Long" | "Short";
+type MarketMode = "Trend-following" | "Sideways / range";
 type ActiveTab = "dashboard" | "add" | "watchlist" | "archive";
 type AuthMode = "signin" | "signup";
 type AccountProfile = {
@@ -105,6 +106,7 @@ type Trade = {
   technicalScore: number;
   sentimentScore: number;
   ecoScore: number;
+  marketMode: MarketMode;
   entryTimeframe: EntryTimeframe;
   stopLossPips: number;
   targetR: number;
@@ -136,6 +138,7 @@ const seedTrades: Trade[] = [
     technicalScore: -2,
     sentimentScore: -1,
     ecoScore: -1,
+    marketMode: "Trend-following",
     entryTimeframe: "5m",
     stopLossPips: 10,
     targetR: 2,
@@ -159,6 +162,7 @@ const seedTrades: Trade[] = [
     technicalScore: 1,
     sentimentScore: -2,
     ecoScore: 0,
+    marketMode: "Trend-following",
     entryTimeframe: "5m",
     stopLossPips: 12,
     targetR: 2,
@@ -182,6 +186,7 @@ const seedTrades: Trade[] = [
     technicalScore: -3,
     sentimentScore: -2,
     ecoScore: -1,
+    marketMode: "Trend-following",
     entryTimeframe: "15m",
     stopLossPips: 15,
     targetR: 3,
@@ -205,7 +210,8 @@ const seedTrades: Trade[] = [
     technicalScore: 1,
     sentimentScore: 1,
     ecoScore: 0,
-    entryTimeframe: "5m",
+    marketMode: "Sideways / range",
+    entryTimeframe: "Daily",
     stopLossPips: 9,
     targetR: 2,
     exitFrame: "Previous liquidity area",
@@ -229,6 +235,7 @@ const blankTrade: Omit<Trade, "id"> = {
   technicalScore: -1,
   sentimentScore: -1,
   ecoScore: -1,
+  marketMode: "Trend-following",
   entryTimeframe: "5m",
   stopLossPips: 10,
   targetR: 2,
@@ -492,6 +499,7 @@ async function requestTradeAnalysis(trade: Omit<Trade, "id"> | Trade, images: Tr
           sentiment: trade.sentimentScore,
           eco: trade.ecoScore,
         },
+        marketMode: trade.marketMode,
         entryTimeframe: trade.entryTimeframe,
         stopLossPips: trade.stopLossPips,
         targetR: trade.targetR,
@@ -542,7 +550,8 @@ function normalizeTrades(trades: Partial<Trade>[]): Trade[] {
       technicalScore: Number(trade.technicalScore ?? (trade.direction === "Long" ? 1 : -1)),
       sentimentScore: Number(trade.sentimentScore ?? 0),
       ecoScore: Number(trade.ecoScore ?? 0),
-      entryTimeframe: ["5m", "15m", "30m"].includes(String(trade.entryTimeframe)) ? (trade.entryTimeframe as EntryTimeframe) : "5m",
+      marketMode: trade.marketMode === "Sideways / range" ? "Sideways / range" : "Trend-following",
+      entryTimeframe: ["5m", "15m", "30m", "4H", "Daily"].includes(String(trade.entryTimeframe)) ? (trade.entryTimeframe as EntryTimeframe) : "5m",
       stopLossPips: Number(legacyTrade.stopLossPips ?? blankTrade.stopLossPips),
       targetR,
       exitFrame,
@@ -943,8 +952,8 @@ function App() {
           </div>
           <h1>EdgeLab</h1>
           <p>
-              Track trend-following trade ideas with Edgefinder confluence, compare technical, sentiment, and ECO
-            reads, then log the result after the setup plays out.
+              Track trend-following or sideways range trade ideas with Edgefinder confluence, compare technical,
+            sentiment, and ECO reads, then log the result after the setup plays out.
           </p>
         </motion.div>
         <div className="hero-actions">
@@ -1034,6 +1043,12 @@ function App() {
                 <option>Short</option>
               </select>
             </Field>
+            <Field label="Market mode">
+              <select value={draft.marketMode} onChange={(event) => updateDraft("marketMode", event.target.value as MarketMode)}>
+                <option>Trend-following</option>
+                <option>Sideways / range</option>
+              </select>
+            </Field>
             <Field label="Session">
               <input value={detectSession(draft.time)} readOnly />
             </Field>
@@ -1071,6 +1086,8 @@ function App() {
                 <option>5m</option>
                 <option>15m</option>
                 <option>30m</option>
+                <option>4H</option>
+                <option>Daily</option>
               </select>
             </Field>
             <Field label="Stop loss">
@@ -1156,8 +1173,8 @@ function App() {
               })}
             </div>
             <p className="analysis-hint">
-              Initial AI review checks trend-following structure plus Edgefinder confluence when you click Add Trade.
-              Post-trade review can be analyzed later.
+              Initial AI review checks trend-following or sideways range structure plus Edgefinder confluence when you
+              click Add Trade. Post-trade review can be analyzed later.
             </p>
             {analysisError && <p className="analysis-error">{analysisError}</p>}
             {draft.aiAnalysis && <AnalysisPanel analysis={draft.aiAnalysis} />}
@@ -1242,7 +1259,7 @@ function App() {
                   </td>
                   <td>
                     <strong>{trade.direction}</strong>
-                    <span>{trade.session}</span>
+                    <span>{trade.marketMode} - {trade.entryTimeframe}</span>
                   </td>
                   <td>
                     <strong>{trade.stopLossPips} pips</strong>
@@ -1811,7 +1828,7 @@ function buildAnalytics(trades: Trade[]) {
     r: Number(trades.filter((trade) => trade.exitFrame === exitFrame).reduce((sum, trade) => sum + trade.resultR, 0).toFixed(2)),
   }));
 
-  const timeframeStats = ["5m", "15m", "30m"].map((timeframe) => ({
+  const timeframeStats = ["5m", "15m", "30m", "4H", "Daily"].map((timeframe) => ({
     timeframe,
     r: Number(trades.filter((trade) => trade.entryTimeframe === timeframe).reduce((sum, trade) => sum + trade.resultR, 0).toFixed(2)),
   }));
