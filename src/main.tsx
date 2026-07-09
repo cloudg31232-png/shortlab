@@ -4,13 +4,10 @@ import { motion } from "framer-motion";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 import {
   Activity,
-  Brain,
   Calculator,
   CalendarClock,
   Check,
-  Download,
   Image,
-  Landmark,
   LayoutDashboard,
   LineChart as LineIcon,
   LogIn,
@@ -569,6 +566,16 @@ function detectSession(time: string): Session {
   return "New York";
 }
 
+function getCurrentMarketSession(date = new Date()) {
+  const day = date.getDay();
+  if (day === 0 || day === 6) return { label: "Market closed", isOpen: false };
+  const minutes = date.getHours() * 60 + date.getMinutes();
+  if (minutes >= 7 * 60 && minutes < 15 * 60) return { label: "Asia session", isOpen: true };
+  if (minutes >= 15 * 60 && minutes < 20 * 60) return { label: "London session", isOpen: true };
+  if (minutes >= 20 * 60 && minutes <= 23 * 60 + 59) return { label: "London/NY overlap", isOpen: true };
+  return { label: "New York session", isOpen: true };
+}
+
 function scoreBias(value: number) {
   if (value > 0) return "Bullish";
   if (value < 0) return "Bearish";
@@ -699,6 +706,7 @@ function App() {
   const [selectedSymbol, setSelectedSymbol] = useState("All");
   const [selectedAccount, setSelectedAccount] = useState("All");
   const [activeTab, setActiveTab] = useState<ActiveTab>("dashboard");
+  const [now, setNow] = useState(new Date());
   const [lotSettings, setLotSettings] = useState<LotSettings>(loadLotSettings);
   const [watchlist, setWatchlist] = useState<WatchItem[]>(loadWatchlist);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -727,10 +735,15 @@ function App() {
   );
 
   const analytics = useMemo(() => buildAnalytics(filteredTrades), [filteredTrades]);
-  const coach = useMemo(() => buildCoachNotes(filteredTrades), [filteredTrades]);
   const symbols = useMemo(() => ["All", ...Array.from(new Set([...watchPairs, ...trades.map((trade) => trade.symbol)]))], [trades]);
   const accounts = useMemo(() => ["All", ...Array.from(new Set(trades.map((trade) => trade.account)))], [trades]);
   const tradingWatchCount = watchlist.filter((item) => item.status === "Being traded").length;
+  const currentSession = useMemo(() => getCurrentMarketSession(now), [now]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
@@ -1073,31 +1086,6 @@ function App() {
     setNotice({ type: "success", message: "Trade ended and duration calculated." });
   }
 
-  function exportJson() {
-    const blob = new Blob([JSON.stringify(trades, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `edgelab-trades-${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function importJson(file: File | undefined) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const normalized = normalizeTrades(JSON.parse(String(reader.result)) as Partial<Trade>[]);
-        setTrades(normalized);
-        saveTrades(normalized);
-      } catch {
-        alert("That file does not look like an EdgeLab journal export.");
-      }
-    };
-    reader.readAsText(file);
-  }
-
   async function submitAuth(event: React.FormEvent) {
     event.preventDefault();
     setAuthMessage("");
@@ -1174,6 +1162,10 @@ function App() {
                 ? `${watchlist.length} on watchlist`
                 : "No pairs watched"}
           </div>
+          <div className={`session-pill ${currentSession.isOpen ? "active" : "closed"}`}>
+            <span />
+            {currentSession.label}
+          </div>
           <div className={`sync-pill ${cloudError ? "error" : cloudReady ? "ready" : user ? "syncing" : ""}`} title={cloudError || "Account sync status"}>
             <span />
             {cloudError ? "Sync issue" : cloudReady ? "Synced" : user ? "Syncing" : "Local"}
@@ -1196,51 +1188,15 @@ function App() {
             sentiment, and ECO reads, then log the result after the setup plays out.
           </p>
         </motion.div>
-        <div className="hero-actions">
-          <button className="icon-button primary" onClick={exportJson} title="Export journal">
-            <Download size={18} />
-            Export
-          </button>
-          <label className="icon-button ghost" title="Import journal">
-            <Upload size={18} />
-            Import
-            <input type="file" accept="application/json" onChange={(event) => importJson(event.target.files?.[0])} />
-          </label>
-        </div>
       </section>}
 
       {activeTab === "dashboard" && (
         <>
           <section className="metrics-grid">
+            <Metric icon={<Sparkles />} label="EdgeLab Trader Score" value={String(analytics.processScore)} detail="Process quality" />
             <Metric icon={<Wallet />} label="Net expectancy" value={compact(analytics.totalR)} detail={`${analytics.count} trades`} />
             <Metric icon={<Target />} label="Win rate" value={percent(analytics.winRate)} detail={`${analytics.wins} wins / ${analytics.losses} losses`} />
             <Metric icon={<Check />} label="Score alignment" value={percent(analytics.setupPassRate)} detail={`${analytics.aPlusCount} aligned reads`} />
-            <Metric icon={<Landmark />} label="Accounts" value={String(accounts.length - 1)} detail={selectedAccount === "All" ? "All accounts" : selectedAccount} />
-          </section>
-
-          <section className="dashboard-grid">
-            <aside className="coach-panel">
-              <div className="panel-header">
-                <div>
-                  <p className="kicker">Rules assisted</p>
-                  <h2>Setup coach</h2>
-                </div>
-                <Brain size={24} />
-              </div>
-              <div className="coach-score">
-                <span>{analytics.processScore}</span>
-                <p>Process score</p>
-              </div>
-              <div className="coach-list">
-                {coach.map((note) => (
-                  <div className="coach-note" key={note.title}>
-                    <strong>{note.title}</strong>
-                    <p>{note.body}</p>
-                  </div>
-                ))}
-              </div>
-            </aside>
-            <WatchlistPanel watchlist={watchlist} compactView />
           </section>
 
           <ChartsSection analytics={analytics} />

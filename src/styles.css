@@ -236,6 +236,40 @@ label.icon-button {
   white-space: nowrap;
 }
 
+.session-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #7dd3fc;
+  font-size: 0.78rem;
+  font-weight: 900;
+  background: rgba(14, 165, 233, 0.08);
+  white-space: nowrap;
+}
+
+.session-pill span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.7);
+}
+
+.session-pill.closed {
+  border-color: rgba(250, 204, 21, 0.24);
+  color: #fde68a;
+  background: rgba(250, 204, 21, 0.07);
+}
+
+.session-pill.closed span {
+  background: #facc15;
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.65);
+}
+
 .sync-pill span {
   width: 7px;
   height: 7px;
