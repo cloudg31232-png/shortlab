@@ -49,6 +49,7 @@ type Session = "Asia" | "London" | "New York" | "Overlap";
 type Direction = "Long" | "Short";
 type MarketMode = "Trend-following" | "Sideways / range";
 type WatchStatus = "Observation" | "Waiting for confirmation" | "Being traded";
+type WatchBias = Direction | "Neutral";
 type ActiveTab = "dashboard" | "add" | "watchlist" | "archive";
 type AuthMode = "signin" | "signup";
 type AccountProfile = {
@@ -88,6 +89,7 @@ type TradeImage = {
 type WatchItem = {
   id: string;
   pair: string;
+  bias: WatchBias;
   status: WatchStatus;
   image?: string;
   imageName?: string;
@@ -301,6 +303,7 @@ const forexPairs = [
   "XAGUSD",
 ] as const;
 const watchStatuses: WatchStatus[] = ["Observation", "Waiting for confirmation", "Being traded"];
+const watchBiases: WatchBias[] = ["Neutral", "Long", "Short"];
 const scoreFields = [
   { key: "mainScore", label: "Main Score" },
   { key: "technicalScore", label: "Technical Score" },
@@ -397,6 +400,7 @@ function normalizeWatchlist(items: Partial<WatchItem>[]): WatchItem[] {
     .map((item, index) => ({
       id: item.id ?? `watch-${index}`,
       pair: String(item.pair).toUpperCase(),
+      bias: watchBiases.includes(item.bias as WatchBias) ? (item.bias as WatchBias) : "Neutral",
       status: watchStatuses.includes(item.status as WatchStatus) ? (item.status as WatchStatus) : "Observation",
       image: item.image,
       imageName: item.imageName,
@@ -515,6 +519,12 @@ function statusClass(status: WatchStatus) {
   if (status === "Being traded") return "trading";
   if (status === "Waiting for confirmation") return "waiting";
   return "observation";
+}
+
+function biasClass(bias: WatchBias) {
+  if (bias === "Long") return "long";
+  if (bias === "Short") return "short";
+  return "neutral";
 }
 
 function pipValuePerLot(pair: string, settings: LotSettings) {
@@ -831,6 +841,7 @@ function App() {
       {
         id: crypto.randomUUID(),
         pair: normalized,
+        bias: "Neutral" as const,
         status: "Observation" as const,
         addedAt: new Date().toISOString(),
       },
@@ -1742,6 +1753,7 @@ function WatchlistPanel({
           <div className="watch-table">
             <div className="watch-table-head">
               <span>Pair</span>
+              <span>Bias</span>
               <span>Status</span>
               <span>Image</span>
               <span>Action</span>
@@ -1760,6 +1772,15 @@ function WatchlistPanel({
                     <strong>{item.pair}</strong>
                     <span>Added {item.addedAt.slice(0, 10)}</span>
                   </div>
+                  <select
+                    className={`watch-bias-select ${biasClass(item.bias)}`}
+                    value={item.bias}
+                    onChange={(event) => onUpdateItem?.(item.id, { bias: event.target.value as WatchBias })}
+                  >
+                    {watchBiases.map((bias) => (
+                      <option key={bias}>{bias}</option>
+                    ))}
+                  </select>
                   <select value={item.status} onChange={(event) => onUpdateItem?.(item.id, { status: event.target.value as WatchStatus })}>
                     {watchStatuses.map((status) => (
                       <option key={status}>{status}</option>

@@ -1124,7 +1124,7 @@ input[type="range"] {
 .watch-table-head,
 .watch-row {
   display: grid;
-  grid-template-columns: 1.1fr 1.2fr 1.3fr 56px;
+  grid-template-columns: 1fr 0.8fr 1.2fr 1.3fr 56px;
   align-items: center;
   gap: 10px;
 }
@@ -1168,6 +1168,24 @@ input[type="range"] {
   color: #d8b4fe;
   border-color: rgba(192, 132, 252, 0.28);
   background: rgba(192, 132, 252, 0.08);
+}
+
+.watch-row .watch-bias-select.long {
+  color: #86efac;
+  border-color: rgba(52, 211, 153, 0.3);
+  background: rgba(52, 211, 153, 0.08);
+}
+
+.watch-row .watch-bias-select.short {
+  color: #fb7185;
+  border-color: rgba(251, 113, 133, 0.3);
+  background: rgba(251, 113, 133, 0.08);
+}
+
+.watch-row .watch-bias-select.neutral {
+  color: #cbd5e1;
+  border-color: rgba(203, 213, 225, 0.2);
+  background: rgba(203, 213, 225, 0.06);
 }
 
 .watch-row strong {
