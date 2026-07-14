@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { motion } from "framer-motion";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
@@ -7,6 +7,7 @@ import {
   Calculator,
   CalendarClock,
   Check,
+  ExternalLink,
   Image,
   LayoutDashboard,
   LineChart as LineIcon,
@@ -50,7 +51,7 @@ type Direction = "Long" | "Short";
 type MarketMode = "Trend-following" | "Sideways / range";
 type WatchStatus = "Observation" | "Waiting for confirmation" | "Being traded";
 type WatchBias = Direction | "Neutral";
-type ActiveTab = "dashboard" | "add" | "watchlist" | "archive";
+type ActiveTab = "dashboard" | "add" | "watchlist" | "archive" | "edgefinder";
 type AuthMode = "signin" | "signup";
 type AccountProfile = {
   id: string;
@@ -269,6 +270,8 @@ const storageKey = "edgelab.trades.v2.order-block-shorts";
 const legacyStorageKey = "edgelab.trades.v1";
 const lotSettingsKey = "shortlab.lot-settings.v1";
 const watchlistStorageKey = "edgelab.watchlist.v1";
+const edgefinderReportUrl = "https://datastudio.google.com/u/1/reporting/5474c626-829c-414c-b430-a9f6154e49fc/page/p_yccf3kzgfd?params=%7B%22df1478%22:%22include%25EE%2580%25800%25EE%2580%2580PT%25EE%2580%2580%22%7D";
+const edgefinderEmbedUrl = "https://lookerstudio.google.com/embed/reporting/5474c626-829c-414c-b430-a9f6154e49fc/page/p_yccf3kzgfd?params=%7B%22df1478%22:%22include%25EE%2580%25800%25EE%2580%2580PT%25EE%2580%2580%22%7D";
 const watchPairs = ["AUDJPY", "NZDJPY", "AUDUSD", "EURJPY", "GBPUSD", "EURUSD", "EURAUD"] as const;
 const forexPairs = [
   "AUDCAD",
@@ -716,6 +719,8 @@ function App() {
   const [selectedSymbol, setSelectedSymbol] = useState("All");
   const [selectedAccount, setSelectedAccount] = useState("All");
   const [activeTab, setActiveTab] = useState<ActiveTab>("dashboard");
+  const [edgefinderOpened, setEdgefinderOpened] = useState(false);
+  const lastWorkspaceTab = useRef<Exclude<ActiveTab, "edgefinder">>("dashboard");
   const [now, setNow] = useState(new Date());
   const [lotSettings, setLotSettings] = useState<LotSettings>(loadLotSettings);
   const [watchlist, setWatchlist] = useState<WatchItem[]>(loadWatchlist);
@@ -753,6 +758,22 @@ function App() {
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    function handleWorkspaceShortcut(event: KeyboardEvent) {
+      if (!event.ctrlKey || event.key !== "Tab") return;
+      event.preventDefault();
+      setEdgefinderOpened(true);
+      setActiveTab((currentTab) => {
+        if (currentTab === "edgefinder") return lastWorkspaceTab.current;
+        lastWorkspaceTab.current = currentTab;
+        return "edgefinder";
+      });
+    }
+
+    window.addEventListener("keydown", handleWorkspaceShortcut);
+    return () => window.removeEventListener("keydown", handleWorkspaceShortcut);
   }, []);
 
   useEffect(() => {
@@ -1127,6 +1148,15 @@ function App() {
     setCloudError("");
   }
 
+  function showTab(tab: ActiveTab) {
+    if (tab === "edgefinder") {
+      setEdgefinderOpened(true);
+    } else {
+      lastWorkspaceTab.current = tab;
+    }
+    setActiveTab(tab);
+  }
+
   return (
     <main className="app-shell">
       <div className="aurora aurora-one" />
@@ -1146,22 +1176,30 @@ function App() {
           </div>
         </div>
         <div className="nav-tabs" aria-label="Primary sections">
-          <button className={activeTab === "dashboard" ? "active" : ""} onClick={() => setActiveTab("dashboard")}>
+          <button className={activeTab === "dashboard" ? "active" : ""} onClick={() => showTab("dashboard")}>
             <LayoutDashboard size={16} />
             Dashboard
           </button>
-          <button className={activeTab === "add" ? "active" : ""} onClick={() => setActiveTab("add")}>
+          <button className={activeTab === "add" ? "active" : ""} onClick={() => showTab("add")}>
             <Plus size={16} />
             Add Trade
           </button>
-          <button className={activeTab === "watchlist" ? "active" : ""} onClick={() => setActiveTab("watchlist")}>
+          <button className={activeTab === "watchlist" ? "active" : ""} onClick={() => showTab("watchlist")}>
             <CalendarClock size={16} />
             Watchlist
             {watchlist.length > 0 && <span className="tab-dot" />}
           </button>
-          <button className={activeTab === "archive" ? "active" : ""} onClick={() => setActiveTab("archive")}>
+          <button className={activeTab === "archive" ? "active" : ""} onClick={() => showTab("archive")}>
             <TableProperties size={16} />
             Archive
+          </button>
+          <button
+            className={activeTab === "edgefinder" ? "active edgefinder-tab" : "edgefinder-tab"}
+            onClick={() => showTab("edgefinder")}
+            title="Open Edgefinder (Ctrl+Tab)"
+          >
+            <LineIcon size={16} />
+            Edgefinder
           </button>
         </div>
         <div className="nav-account">
@@ -1212,6 +1250,29 @@ function App() {
 
           <ChartsSection analytics={analytics} />
         </>
+      )}
+
+      {edgefinderOpened && (
+        <section className={`edgefinder-app ${activeTab === "edgefinder" ? "active" : ""}`} aria-hidden={activeTab !== "edgefinder"}>
+          <div className="edgefinder-app-header">
+            <div>
+              <p className="kicker">Integrated workspace</p>
+              <h2>Edgefinder</h2>
+              <span>Press Ctrl+Tab to switch back to EdgeLab.</span>
+            </div>
+            <a href={edgefinderReportUrl} target="_blank" rel="noreferrer">
+              <ExternalLink size={16} />
+              Open standalone
+            </a>
+          </div>
+          <iframe
+            src={edgefinderEmbedUrl}
+            title="Edgefinder report"
+            loading="lazy"
+            allowFullScreen
+            referrerPolicy="strict-origin-when-cross-origin"
+          />
+        </section>
       )}
 
       {activeTab === "add" && (
