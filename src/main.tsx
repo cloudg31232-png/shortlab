@@ -1235,7 +1235,18 @@ function App() {
               <input type="time" value={draft.time} onChange={(event) => updateDraft("time", event.target.value)} />
             </Field>
             <Field label="Symbol">
-              <input value={draft.symbol} onChange={(event) => updateDraft("symbol", event.target.value.toUpperCase())} placeholder="GBPNZD" />
+              <input
+                list="trade-symbol-options"
+                value={draft.symbol}
+                onChange={(event) => updateDraft("symbol", event.target.value.toUpperCase())}
+                placeholder="Type EURUSD, GBPJPY, XAUUSD..."
+                autoComplete="off"
+              />
+              <datalist id="trade-symbol-options">
+                {forexPairs.map((pair) => (
+                  <option key={pair} value={pair} />
+                ))}
+              </datalist>
             </Field>
             <Field label="Direction">
               <select value={draft.direction} onChange={(event) => updateDraft("direction", event.target.value as Direction)}>
